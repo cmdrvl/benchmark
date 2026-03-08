@@ -56,6 +56,73 @@ fn sample_report(outcome: AssertionOutcome) -> BenchmarkReport {
     )
 }
 
+#[allow(non_snake_case)]
+#[test]
+fn BENCH_I001_nested_candidate_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
+    let execution = execute(fixture_cli(
+        "tests/fixtures/candidates/refusal/bench_i004_nested.json",
+        "tests/fixtures/assertions/smoke/bench_i001_gold.jsonl",
+        &[],
+        true,
+    ))?;
+
+    assert_eq!(execution.outcome, Outcome::Refusal);
+    let json: serde_json::Value = serde_json::from_str(&execution.stdout)?;
+    assert_eq!(json["refusal"]["code"], "E_FORMAT_DETECT");
+    Ok(())
+}
+
+#[allow(non_snake_case)]
+#[test]
+fn BENCH_I002_missing_key_column_refuses_with_e_key_not_found()
+-> Result<(), Box<dyn std::error::Error>> {
+    let execution = execute(fixture_cli(
+        "tests/fixtures/candidates/refusal/bench_no_comp_id.csv",
+        "tests/fixtures/assertions/smoke/bench_i001_gold.jsonl",
+        &[],
+        true,
+    ))?;
+
+    assert_eq!(execution.outcome, Outcome::Refusal);
+    let json: serde_json::Value = serde_json::from_str(&execution.stdout)?;
+    assert_eq!(json["refusal"]["code"], "E_KEY_NOT_FOUND");
+    Ok(())
+}
+
+#[allow(non_snake_case)]
+#[test]
+fn BENCH_I003_duplicate_key_rows_refuse_with_e_key_not_unique()
+-> Result<(), Box<dyn std::error::Error>> {
+    let execution = execute(fixture_cli(
+        "tests/fixtures/candidates/refusal/bench_duplicate_key.csv",
+        "tests/fixtures/assertions/smoke/bench_i001_gold.jsonl",
+        &[],
+        true,
+    ))?;
+
+    assert_eq!(execution.outcome, Outcome::Refusal);
+    let json: serde_json::Value = serde_json::from_str(&execution.stdout)?;
+    assert_eq!(json["refusal"]["code"], "E_KEY_NOT_UNIQUE");
+    Ok(())
+}
+
+#[allow(non_snake_case)]
+#[test]
+fn BENCH_I004_null_or_blank_key_rows_refuse_with_e_key_null()
+-> Result<(), Box<dyn std::error::Error>> {
+    let execution = execute(fixture_cli(
+        "tests/fixtures/candidates/refusal/bench_null_key.csv",
+        "tests/fixtures/assertions/smoke/bench_i001_gold.jsonl",
+        &[],
+        true,
+    ))?;
+
+    assert_eq!(execution.outcome, Outcome::Refusal);
+    let json: serde_json::Value = serde_json::from_str(&execution.stdout)?;
+    assert_eq!(json["refusal"]["code"], "E_KEY_NULL");
+    Ok(())
+}
+
 #[test]
 fn bench_u_cli_contract_is_stable() {
     let command = Cli::command();
@@ -174,6 +241,65 @@ fn bench_i_execute_returns_human_fail_with_exit_1() -> Result<(), Box<dyn std::e
             .contains("SKIP comp_4 nonexistent_field reason=SKIP_FIELD")
     );
 
+    Ok(())
+}
+
+#[allow(non_snake_case)]
+#[test]
+fn BENCH_I011_repeated_json_runs_are_byte_identical() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = fixture_cli(
+        "tests/fixtures/candidates/smoke/bench_mixed.csv",
+        "tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl",
+        &[],
+        true,
+    );
+
+    let first = execute(cli.clone())?;
+    let second = execute(cli)?;
+
+    assert_eq!(first.outcome, Outcome::Fail);
+    assert_eq!(first.stdout, second.stdout);
+    Ok(())
+}
+
+#[allow(non_snake_case)]
+#[test]
+fn BENCH_I012_human_and_json_modes_reflect_same_failures_and_skips()
+-> Result<(), Box<dyn std::error::Error>> {
+    let human = execute(fixture_cli(
+        "tests/fixtures/candidates/smoke/bench_mixed.csv",
+        "tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl",
+        &[],
+        false,
+    ))?;
+    let json = execute(fixture_cli(
+        "tests/fixtures/candidates/smoke/bench_mixed.csv",
+        "tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl",
+        &[],
+        true,
+    ))?;
+    let report: serde_json::Value = serde_json::from_str(&json.stdout)?;
+
+    assert_eq!(human.outcome, Outcome::Fail);
+    assert_eq!(json.outcome, Outcome::Fail);
+    assert!(human.stdout.contains("failed: 1"));
+    assert!(human.stdout.contains("skipped: 2"));
+    assert_eq!(report["summary"]["failed"], 1);
+    assert_eq!(report["summary"]["skipped"], 2);
+    assert!(human.stdout.contains("FAIL comp_3 cap_rate"));
+    assert!(
+        human
+            .stdout
+            .contains("SKIP comp_7 cap_rate reason=SKIP_ENTITY")
+    );
+    assert!(
+        human
+            .stdout
+            .contains("SKIP comp_4 nonexistent_field reason=SKIP_FIELD")
+    );
+    assert_eq!(report["failures"][0]["entity"], "comp_3");
+    assert_eq!(report["skipped"][0]["entity"], "comp_7");
+    assert_eq!(report["skipped"][1]["entity"], "comp_4");
     Ok(())
 }
 

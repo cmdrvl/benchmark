@@ -228,7 +228,7 @@ mod tests {
 
     #[allow(non_snake_case)]
     #[test]
-    fn BENCH_U003_loader_defaults_and_preserves_stable_order()
+    fn BENCH_U006_loader_defaults_and_preserves_stable_order()
     -> Result<(), Box<dyn std::error::Error>> {
         let path = write_temp_assertions(
             "{\"entity\":\"comp_1\",\"field\":\"u8:name\",\"expected\":\"Marquis\"}\n\
@@ -264,7 +264,7 @@ mod tests {
 
     #[allow(non_snake_case)]
     #[test]
-    fn BENCH_U004_blank_or_empty_file_refuses_with_empty_assertions()
+    fn BENCH_U007_blank_or_empty_file_refuses_with_empty_assertions()
     -> Result<(), Box<dyn std::error::Error>> {
         let path = write_temp_assertions("\n  \n")?;
 
@@ -281,7 +281,7 @@ mod tests {
 
     #[allow(non_snake_case)]
     #[test]
-    fn BENCH_U005_negative_tolerance_refuses_with_bad_assertions()
+    fn BENCH_U008_negative_tolerance_refuses_with_bad_assertions()
     -> Result<(), Box<dyn std::error::Error>> {
         let path = write_temp_assertions(
             "{\"entity\":\"comp_1\",\"field\":\"u8:cap_rate\",\"expected\":\"6.76%\",\"compare_as\":\"percent\",\"tolerance\":-0.01}\n",

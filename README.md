@@ -8,26 +8,33 @@
 
 Current status:
 
-- repository status: spec-complete, scaffolded crate, implementation in progress
+- repository status: implemented Rust crate with validated benchmark v0 command path
 - source of truth: [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md)
-- current repo contents: plan + Beads execution graph + compileable Rust crate shell, not a released scoring CLI yet
+- current repo contents: plan + Beads execution graph + working Rust crate + fixture and perf corpus
 
-The examples below describe the target `v0` contract. They are the implementation target, not a claim that the binary is already published.
+The examples below describe the implemented `v0` contract. The crate is runnable locally, but there is still no published release binary.
 
 ---
 
 ## Current quickstart
 
-There is no installable binary yet. The current quickstart is for contributors and implementers:
+There is no published installable binary yet. The current quickstart is for contributors and local operators:
 
 ```bash
 cd benchmark
+cargo run -- --help
 sed -n '1,260p' docs/PLAN_BENCHMARK.md
 br ready
+cargo build --release
+cargo run -- \
+  tests/fixtures/candidates/smoke/bench_i001_candidate.csv \
+  --assertions tests/fixtures/assertions/smoke/bench_i001_gold.jsonl \
+  --key comp_id \
+  --json
 cargo test
 ```
 
-If you are here to use the eventual CLI, the plan and examples below describe the intended contract. If you are here to build it, start with the plan and the Beads graph.
+If you are here to build or verify the tool, start with the plan, the Beads graph, and the local fixture corpus.
 
 ---
 
@@ -120,13 +127,13 @@ Fresh-eyes boundary that matters:
 
 ---
 
-## Target v0 workflow
+## Current v0 workflow
 
 ```bash
 benchmark normalized.csv --assertions gold_set.jsonl --key comp_id --json
 ```
 
-Target JSON shape:
+Current JSON shape:
 
 ```json
 {
@@ -145,7 +152,12 @@ Target JSON shape:
     "skipped": 1,
     "resolved": 215,
     "accuracy": 0.995,
-    "coverage": 0.995
+    "coverage": 0.995,
+    "by_severity": {
+      "critical": { "passed": 0, "failed": 0, "skipped": 0 },
+      "major": { "passed": 214, "failed": 1, "skipped": 1 },
+      "minor": { "passed": 0, "failed": 0, "skipped": 0 }
+    }
   },
   "failures": [
     {
@@ -154,21 +166,24 @@ Target JSON shape:
       "expected": "5.0%",
       "actual": "5.5%",
       "compare_as": "percent",
-      "tolerance": 0.01
+      "tolerance": 0.01,
+      "severity": "major",
+      "source": "reference_excel:E18"
     }
   ],
   "skipped": [
     {
       "entity": "comp_7",
       "field": "u8:cap_rate",
-      "reason": "SKIP_ENTITY"
+      "reason": "SKIP_ENTITY",
+      "detail": "Entity 'comp_7' not found in candidate"
     }
   ],
   "refusal": null
 }
 ```
 
-Target human output:
+Current human output:
 
 ```text
 BENCHMARK FAIL
@@ -180,6 +195,9 @@ failed: 1
 skipped: 1
 accuracy: 0.995
 coverage: 0.995
+
+FAIL comp_3 u8:adj_location expected=5.0% actual=5.5% compare_as=percent tolerance=0.01
+SKIP comp_7 u8:cap_rate reason=SKIP_ENTITY
 ```
 
 ---
@@ -211,14 +229,14 @@ That means:
 - scalar fields addressable by column name
 - one row per entity
 
-Planned supported candidate formats:
+Supported candidate formats:
 
 | Format | Status in v0 |
 |--------|--------------|
-| CSV | supported target |
-| JSONL | supported target |
-| Parquet | supported target |
-| row-oriented JSON | supported target |
+| CSV | supported |
+| JSONL | supported |
+| Parquet | supported |
+| row-oriented JSON | supported |
 | document-shaped / nested JSON | out of scope for v0 |
 
 Important non-goal:
@@ -270,7 +288,7 @@ That distinction matters in tournament and factory settings. A system that never
 
 ## Comparison modes
 
-Planned `compare_as` modes:
+Supported `compare_as` modes:
 
 | Mode | Semantics |
 |------|-----------|
@@ -288,7 +306,7 @@ Two important constraints:
 
 ## Refusals
 
-Planned refusal codes:
+Current refusal codes:
 
 | Code | Meaning |
 |------|---------|
@@ -315,7 +333,7 @@ benchmark normalized.csv --assertions gold.jsonl --key comp_id \
   --lock normalized.lock.json --json
 ```
 
-Planned behavior:
+Current behavior:
 
 - if the candidate is not in the provided lockfile set: refuse
 - if the candidate hash drifts from the lock member: refuse
@@ -342,7 +360,7 @@ assess benchmark.report.json --policy extraction_quality.v1 > decision.json
 pack seal benchmark.report.json normalized.csv gold.jsonl --output evidence/scored/
 ```
 
-In tournament mode, the planned ranking signal is:
+In tournament mode, the ranking signal is:
 
 - primary: `summary.accuracy`
 - tie-breaker: `summary.coverage`
@@ -355,23 +373,26 @@ Today this repo contains:
 
 - the detailed plan: [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md)
 - the Beads execution graph in `.beads/`
+- an implemented Rust crate in `src/`
+- fixtures and integration/perf coverage in `tests/`
 
 Current implementation status:
 
-- plan quality: implementation-grade
+- plan quality: implementation-grade and now reflected in code
 - README and AGENTS: now explicit and repo-specific
-- code: not scaffolded yet
+- code: implemented crate with CLI orchestration, scoring, rendering, lock checks, and perf smoke coverage
+- release surface: no CI workflow, release workflow, or published binary yet
 
 Immediate next step in the repo:
 
-- foundation scaffold lands first
-- then CLI, assertions, candidate loading, fixtures, compare, and lock-check can branch in parallel
+- keep docs aligned with the shipped crate surface
+- preserve determinism, named BENCH coverage, and perf smoke guardrails as changes land
 
 ---
 
-## Planned repo structure
+## Repo structure
 
-The implementation plan targets this layout:
+The crate currently uses this layout:
 
 | Path | Role |
 |------|------|
@@ -388,24 +409,30 @@ The implementation plan targets this layout:
 | `src/render.rs` | human and JSON output rendering |
 | `src/refusal.rs` | refusal taxonomy and envelopes |
 | `tests/fixtures/` | shared candidate / assertions / lock fixtures |
+| `tests/cli.rs` | CLI mode and end-to-end contract tests |
+| `tests/scoring_matrix.rs` | scoring and comparison matrix tests |
+| `tests/refusals.rs` | refusal-path coverage |
+| `tests/lock_integration.rs` | lock verification coverage |
+| `tests/perf_smoke.rs` | runtime smoke guardrails |
 
 ---
 
 ## Contributing right now
 
-If you are working in this repo before the code exists:
+If you are working in this repo:
 
 1. read [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md)
 2. read [AGENTS.md](./AGENTS.md)
 3. inspect ready Beads work with `br ready`
-4. implement only behavior already specified in the plan
+4. run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and `ubs .`
+5. implement only behavior already specified in the plan
 
 Current work should improve one of:
 
-- scaffold quality
 - contract fidelity
 - runtime safety
 - test and perf guardrails
+- documentation and release hygiene
 
 ---
 
@@ -413,9 +440,9 @@ Current work should improve one of:
 
 Near-term:
 
-- scaffold the crate and module skeleton
-- implement parser, loader, compare, engine, render, and lock-check modules
-- close named quality gates and runtime smoke checks
+- keep README and AGENTS aligned with the actual crate
+- preserve named quality gates and runtime smoke checks
+- add CI and release surfaces only when they are real
 
 Deferred by design:
 

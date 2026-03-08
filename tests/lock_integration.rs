@@ -8,7 +8,7 @@ fn fixture(path: &str) -> PathBuf {
 
 #[allow(non_snake_case)]
 #[test]
-fn BENCH_I010_lock_fixture_verifies_smoke_candidate() -> Result<(), Box<dyn std::error::Error>> {
+fn BENCH_I013_lock_fixture_verifies_smoke_candidate() -> Result<(), Box<dyn std::error::Error>> {
     let candidate = fixture("tests/fixtures/candidates/smoke/bench_i001_candidate.csv");
     let lockfile = fixture("tests/fixtures/locks/smoke/bench_i010_candidate.lock.json");
 
@@ -23,7 +23,7 @@ fn BENCH_I010_lock_fixture_verifies_smoke_candidate() -> Result<(), Box<dyn std:
 
 #[allow(non_snake_case)]
 #[test]
-fn BENCH_I011_lock_drift_fixture_refuses_before_scoring() -> Result<(), Box<dyn std::error::Error>>
+fn BENCH_I009_lock_drift_fixture_refuses_before_scoring() -> Result<(), Box<dyn std::error::Error>>
 {
     let candidate = fixture("tests/fixtures/candidates/smoke/bench_i001_candidate.csv");
     let lockfile = fixture("tests/fixtures/locks/refusal/bench_drift.lock.json");
@@ -36,7 +36,7 @@ fn BENCH_I011_lock_drift_fixture_refuses_before_scoring() -> Result<(), Box<dyn 
 
 #[allow(non_snake_case)]
 #[test]
-fn BENCH_I012_lock_non_member_fixture_refuses_before_scoring()
+fn BENCH_I010_lock_non_member_fixture_refuses_before_scoring()
 -> Result<(), Box<dyn std::error::Error>> {
     let candidate = fixture("tests/fixtures/candidates/smoke/bench_i001_candidate.csv");
     let lockfile = fixture("tests/fixtures/locks/refusal/bench_non_member.lock.json");

@@ -23,7 +23,7 @@ fn write_temp_assertions(contents: &str) -> std::io::Result<PathBuf> {
 
 #[allow(non_snake_case)]
 #[test]
-fn BENCH_I001_public_loader_preserves_defaults_for_valid_assertions()
+fn BENCH_U014_public_loader_preserves_defaults_for_valid_assertions()
 -> Result<(), Box<dyn std::error::Error>> {
     let path = write_temp_assertions(
         "{\"entity\":\"comp_1\",\"field\":\"u8:name\",\"expected\":\"Marquis\"}\n",
@@ -40,7 +40,7 @@ fn BENCH_I001_public_loader_preserves_defaults_for_valid_assertions()
 
 #[allow(non_snake_case)]
 #[test]
-fn BENCH_I002_public_loader_maps_semantic_failures_to_bad_assertions()
+fn BENCH_U015_public_loader_maps_semantic_failures_to_bad_assertions()
 -> Result<(), Box<dyn std::error::Error>> {
     let path = write_temp_assertions(
         "{\"entity\":\"comp_1\",\"field\":\"u8:cap_rate\",\"expected\":\"6.76%\",\"compare_as\":\"date\",\"tolerance\":0.01}\n",
@@ -59,7 +59,7 @@ fn BENCH_I002_public_loader_maps_semantic_failures_to_bad_assertions()
 
 #[allow(non_snake_case)]
 #[test]
-fn BENCH_I003_public_loader_maps_blank_input_to_empty_assertions()
+fn BENCH_U016_public_loader_maps_blank_input_to_empty_assertions()
 -> Result<(), Box<dyn std::error::Error>> {
     let path = write_temp_assertions("")?;
 

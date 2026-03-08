@@ -218,11 +218,12 @@ const fn is_leap_year(year: u32) -> bool {
 }
 
 #[cfg(test)]
+#[allow(non_snake_case)]
 mod tests {
     use super::{CompareAs, CompareError, compare_values};
 
     #[test]
-    fn bench_u003_number_honors_absolute_tolerance() -> Result<(), Box<dyn std::error::Error>> {
+    fn BENCH_U003_number_honors_absolute_tolerance() -> Result<(), Box<dyn std::error::Error>> {
         let within_tolerance =
             compare_values("28200000", "28200500", CompareAs::Number, Some(1000.0))?;
         let outside_tolerance =
@@ -237,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn bench_u004_percent_does_not_auto_convert_ratio_form_decimals() {
+    fn BENCH_U004_percent_does_not_auto_convert_ratio_form_decimals() {
         let error = compare_values("6.76%", "0.0676", CompareAs::Percent, None).unwrap_err();
 
         assert_eq!(
@@ -249,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn bench_u005_date_normalizes_canonical_text() -> Result<(), Box<dyn std::error::Error>> {
+    fn BENCH_U005_date_normalizes_canonical_text() -> Result<(), Box<dyn std::error::Error>> {
         let outcome = compare_values("2026-03-08", "2026/3/8", CompareAs::Date, None)?;
 
         assert!(outcome.matched);
@@ -260,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn bench_u006_string_trims_whitespace() -> Result<(), Box<dyn std::error::Error>> {
+    fn BENCH_U009_string_trims_whitespace() -> Result<(), Box<dyn std::error::Error>> {
         let outcome = compare_values(
             " Marquis at Briarcliff ",
             "Marquis at Briarcliff",
@@ -276,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn bench_u007_number_parse_does_not_fallback_to_string() {
+    fn BENCH_U010_number_parse_does_not_fallback_to_string() {
         let error =
             compare_values("not-a-number", "not-a-number", CompareAs::Number, None).unwrap_err();
 
@@ -289,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn bench_u008_tolerance_is_rejected_for_string_and_date() {
+    fn BENCH_U011_tolerance_is_rejected_for_string_and_date() {
         let string_error =
             compare_values("value", "value", CompareAs::String, Some(0.1)).unwrap_err();
         let date_error =
@@ -308,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn bench_u009_negative_tolerance_is_rejected_for_numeric_modes() {
+    fn BENCH_U012_negative_tolerance_is_rejected_for_numeric_modes() {
         let number_error = compare_values("10", "10", CompareAs::Number, Some(-1.0)).unwrap_err();
         let percent_error = compare_values("5%", "5%", CompareAs::Percent, Some(-0.5)).unwrap_err();
 

@@ -39,22 +39,20 @@ What `benchmark` does not own:
 
 ## Current Repository State
 
-This repo is **pre-implementation but plan-complete**.
+This repo now contains the implemented `benchmark v0` crate plus its fixture and quality-gate corpus.
 
 Current contents:
 
 - [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md) — full implementation-grade spec
 - [.beads/issues.jsonl](./.beads/issues.jsonl) — execution graph for the implementation swarm
 - [README.md](./README.md) — operator-facing contract and project framing
-- Rust crate scaffold with the planned module/file map and a thin refusal shell
-
-The crate shell exists now, but scoring behavior does not. The next real tasks
-fill in those modules without reopening the scaffold shape.
+- Rust crate implementing CLI orchestration, parsing, loading, scoring, rendering, and lock verification
+- fixture, expected-output, and perf-smoke coverage under `tests/fixtures/`
 
 Implication:
 
-- do not invent architecture beyond the plan
-- do not collapse multiple future modules into `main.rs`
+- keep the implementation aligned to the plan
+- do not collapse real module boundaries into `main.rs`
 - do not add behavior that is merely "reasonable" if the plan does not say to do it
 
 ---
@@ -69,7 +67,12 @@ sed -n '1,260p' docs/PLAN_BENCHMARK.md
 br ready
 br blocked
 
-# Current scaffold verification
+# AI-agent prioritization
+bv -robot-next
+bv -robot-triage -robot-max-results 5
+bv -robot-plan
+
+# Current crate verification
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
@@ -95,9 +98,9 @@ Do not invent behavior not present in the plan.
 
 ---
 
-## Planned File Map
+## Implemented File Map
 
-The intended implementation structure is:
+The current implementation structure is:
 
 | File | Purpose |
 |------|---------|
@@ -241,16 +244,16 @@ Do not add heavy dependencies casually. This tool should stay small and determin
 
 ## Quality Gates
 
-### Current docs-only state
+### Docs-only changes
 
 Run this after doc-only changes:
 
 ```bash
 git diff --check
-ubs README.md AGENTS.md docs/PLAN_BENCHMARK.md
+ubs .
 ```
 
-### Current scaffold state
+### Routine code changes
 
 Run this after substantive code changes:
 
@@ -259,6 +262,14 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ubs .
+```
+
+### Runtime or determinism-sensitive changes
+
+Add this when changing the end-to-end scoring path, determinism behavior, or runtime-sensitive code:
+
+```bash
+cargo test --test perf_smoke -- --nocapture
 ```
 
 ### Stop-ship verification target
@@ -303,8 +314,20 @@ integration -> perf_smoke -> quality_gates
 
 Important:
 
-- the epic is tracker noise; the first real task is the scaffold bead
+- the epic is tracker noise; prefer concrete ready beads
 - do not start blocked feature work just because the file seems obvious
+- if a bead is `in_progress` with no assignee, no comments, and no active reservation, reopen it before using `bv` triage
+
+Recommended AI-agent triage loop:
+
+```bash
+# Re-open clearly stale work first when needed
+br list --status in_progress --pretty
+
+# Then pick the next highest-value bead
+bv -robot-next
+bv -robot-triage -robot-max-results 5
+```
 
 ---
 
@@ -378,7 +401,7 @@ Avoid renaming these into "friendlier" local synonyms.
 
 Current repo reality:
 
-- no Rust crate yet
+- Rust crate exists and is locally runnable with `cargo run -- ...`
 - no CI workflow yet
 - no release workflow yet
 - no published binary yet
@@ -425,7 +448,6 @@ Before ending a session in this repo:
 1. verify plan alignment with [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md)
 2. run the right quality gate for the current repo state
 3. sync Beads if you changed issue state
-4. commit with a precise message
-5. push `main`
-6. push `main:master`
-7. confirm `git status` shows clean and up to date
+4. confirm any file reservations or bead comments reflect the actual handoff state
+5. if you were explicitly asked to commit or push in this environment, do so with a precise message
+6. confirm `git status` accurately reflects what remains uncommitted
