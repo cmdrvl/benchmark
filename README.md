@@ -12,7 +12,7 @@ Current status:
 - source of truth: [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md)
 - current repo contents: plan + Beads execution graph + working Rust crate + fixture and perf corpus
 
-The examples below describe the implemented `v0` contract. The crate is runnable locally, but there is still no published release binary.
+The examples below describe the implemented `v0` contract. The crate is runnable locally, CI and release automation now live in-repo, and the first published release binary will follow the next intentional version cut.
 
 ---
 
@@ -381,7 +381,7 @@ Current implementation status:
 - plan quality: implementation-grade and now reflected in code
 - README and AGENTS: now explicit and repo-specific
 - code: implemented crate with CLI orchestration, scoring, rendering, lock checks, and perf smoke coverage
-- release surface: no CI workflow, release workflow, or published binary yet
+- release surface: CI workflow, release workflow, and Homebrew-tap update path now exist; no published release binary yet
 
 Immediate next step in the repo:
 
@@ -442,7 +442,7 @@ Near-term:
 
 - keep README and AGENTS aligned with the actual crate
 - preserve named quality gates and runtime smoke checks
-- add CI and release surfaces only when they are real
+- cut the first tagged release after the next explicit version bump
 
 Deferred by design:
 

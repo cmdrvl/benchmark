@@ -83,6 +83,7 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ubs .
+./scripts/ubs_gate.sh
 ```
 
 ---
@@ -402,15 +403,17 @@ Avoid renaming these into "friendlier" local synonyms.
 Current repo reality:
 
 - Rust crate exists and is locally runnable with `cargo run -- ...`
-- no CI workflow yet
-- no release workflow yet
+- CI workflow exists at `.github/workflows/ci.yml`
+- release workflow exists at `.github/workflows/release.yml`
+- Homebrew tap update is part of the release workflow
 - no published binary yet
 
 Do not add README badges or install claims until they are real.
 
-When release work starts, it should follow the stronger spine pattern:
+Release discipline in this repo now follows the stronger spine pattern:
 
 - `fmt` / `clippy` / `test` before publish
+- `./scripts/ubs_gate.sh` in CI
 - deterministic artifacts
 - `main` as primary branch
 - sync `master` for legacy compatibility

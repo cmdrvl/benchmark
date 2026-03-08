@@ -5,3 +5,4 @@ target_codex_*/
 
 # bv (beads viewer) local config and caches
 .bv/
+.ubs-gate-summary.json
