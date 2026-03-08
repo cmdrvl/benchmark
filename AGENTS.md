@@ -283,9 +283,57 @@ Before calling the tool implementation done, the quality-gate bead should prove:
 
 ---
 
-## Beads Workflow
+## MCP Agent Mail — Multi-Agent Coordination
 
-Use Beads as the execution source of truth.
+Agent Mail is the coordination layer for multi-agent sessions in this repo: identities, inbox/outbox, thread history, and advisory file reservations.
+
+### Session Baseline
+
+1. If direct MCP Agent Mail tools are available in this harness, ensure project and reuse your identity:
+   - `ensure_project(project_key=<abs-path>)`
+   - `whois(project_key, agent_name)` or `register_agent(...)` only if identity does not exist
+2. Reserve only exact files you will edit:
+   - Allowed: `src/engine.rs`, `tests/cli.rs`
+   - Not allowed: `src/**`, `tests/**`, whole directories
+3. Send a short start message and finish message for each bead, reusing the bead ID as the thread when practical.
+4. Check inbox at moderate cadence (roughly every 2-5 minutes), not continuously.
+
+### Important `ntm` Boundary
+
+When this repo is worked via `ntm`, the session may be connected to Agent Mail even if the spawned Codex or Claude harness does **not** expose direct `mcp__mcp-agent-mail__...` tools.
+
+If direct MCP Agent Mail tools are unavailable:
+
+- do **not** stop working just because mail tools are absent
+- continue with `br`, exact file reservations via the available coordination surface, and overseer instructions
+- treat Beads + narrow file ownership as the minimum coordination contract
+
+### Stability Rules
+
+- Do not run retry loops for `register_agent`, `create_agent_identity`, or `macro_start_session`.
+- If a call fails with a transient DB/SQLite lock error, back off for 90 seconds before retrying.
+- Continue bead work while waiting for retry windows; do not block all progress on mail retries.
+
+### Communication Rules
+
+- If a message has `ack_required=true`, acknowledge it promptly.
+- Keep bead updates short and explicit: start message, finish message, blocker message.
+- Reuse a stable bead thread when possible for searchable history.
+
+### Reservation Rules
+
+- Reserve only specific files you are actively editing.
+- Never reserve entire directories or broad patterns.
+- If a reservation conflict appears, pick another unblocked bead or a non-overlapping file.
+
+---
+
+## Beads (br) — Dependency-Aware Issue Tracking
+
+Beads is the execution source of truth in this repo.
+
+- Beads = task graph, state, priorities, dependencies
+- Agent Mail = coordination, reservations, audit trail
 
 ```bash
 br ready
@@ -294,6 +342,20 @@ br update <id> --status in_progress
 br close <id> --reason "Completed"
 br sync --flush-only
 ```
+
+Conventions:
+
+- include bead IDs in coordination subjects, for example `[bd-6oe] Start engine/report math`
+- use the bead ID in reservation reasons when the tool supports it
+- prefer concrete ready beads over the epic tracker
+
+Workflow:
+
+1. Start with `br ready`.
+2. Mark the bead `in_progress` before editing.
+3. Reserve exact files and send a short start update when coordination tools are available.
+4. Implement and run the right quality gate.
+5. Close the bead, send a completion note, and release reservations.
 
 Repo-specific graph shape:
 
