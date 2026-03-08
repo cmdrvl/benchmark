@@ -1,0 +1,2 @@
+{"entity":"comp_99","field":"property_name","expected":"Missing Entity 1","severity":"major"}
+{"entity":"comp_100","field":"cap_rate","expected":"5.00%","compare_as":"percent","severity":"critical"}

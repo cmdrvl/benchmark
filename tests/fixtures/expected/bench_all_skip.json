@@ -1,0 +1,27 @@
+{
+  "version": "benchmark.v0",
+  "outcome": "FAIL",
+  "key_column": "comp_id",
+  "summary": {
+    "total": 2,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 2,
+    "resolved": 0,
+    "accuracy": null,
+    "coverage": 0.0
+  },
+  "failures": [],
+  "skipped": [
+    {
+      "entity": "comp_99",
+      "field": "property_name",
+      "reason": "SKIP_ENTITY"
+    },
+    {
+      "entity": "comp_100",
+      "field": "cap_rate",
+      "reason": "SKIP_ENTITY"
+    }
+  ]
+}

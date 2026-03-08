@@ -1,0 +1,7 @@
+{"entity":"comp_1","field":"property_name","expected":"Marquis at Briarcliff","severity":"major","source":"reference_excel:B3"}
+{"entity":"comp_1","field":"cap_rate","expected":"6.76%","compare_as":"percent","severity":"critical","source":"reference_excel:D14"}
+{"entity":"comp_2","field":"sale_price","expected":"15500000","compare_as":"number","tolerance":1000,"severity":"major","source":"reference_excel:D5"}
+{"entity":"comp_3","field":"cap_rate","expected":"7.50%","compare_as":"percent","tolerance":0.01,"severity":"major","source":"reference_excel:E18"}
+{"entity":"comp_7","field":"cap_rate","expected":"8.00%","compare_as":"percent","severity":"minor","source":"reference_excel:J14"}
+{"entity":"comp_4","field":"nonexistent_field","expected":"some_value","severity":"minor","source":"reference_excel:F22"}
+{"entity":"comp_5","field":"as_of","expected":"2026-02-15","compare_as":"date","severity":"major","source":"reference_excel:G3"}

@@ -81,9 +81,6 @@ pub fn scaffold_only(command: &BenchmarkCommand) -> RefusalEnvelope {
                 .map(|path| path.display().to_string())
                 .collect::<Vec<_>>()
         }),
-        Some(
-            "br show bd-12n && br ready # benchmark scaffold is landed; continue with the next ready implementation bead"
-                .to_owned(),
-        ),
+        Some("br ready".to_owned()),
     )
 }

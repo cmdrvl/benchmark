@@ -9,19 +9,30 @@ use clap::Parser;
     about = "Score a row-oriented candidate against human-validated assertions"
 )]
 pub struct Cli {
-    #[arg(value_name = "CANDIDATE")]
+    #[arg(
+        value_name = "CANDIDATE",
+        help = "File to score (CSV, JSON, JSONL, or Parquet)"
+    )]
     pub candidate: PathBuf,
 
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", help = "Assertion file (JSONL)")]
     pub assertions: PathBuf,
 
-    #[arg(long, value_name = "COLUMN")]
+    #[arg(
+        long,
+        value_name = "COLUMN",
+        help = "Key column for entity lookup in candidate"
+    )]
     pub key: String,
 
-    #[arg(long, value_name = "LOCKFILE")]
+    #[arg(
+        long,
+        value_name = "LOCKFILE",
+        help = "Verify candidate is a member of these lockfiles (repeatable)"
+    )]
     pub lock: Vec<PathBuf>,
 
-    #[arg(long)]
+    #[arg(long, help = "Emit machine-readable JSON output")]
     pub json: bool,
 }
 
