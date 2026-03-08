@@ -1,0 +1,29 @@
+[package]
+name = "benchmark"
+version = "0.1.0"
+edition = "2024"
+authors = ["CMD+RVL <engineering@cmdrvl.com>"]
+description = "Gold-set scoring for row-oriented extraction pipelines"
+license = "MIT"
+repository = "https://github.com/cmdrvl/benchmark"
+readme = "README.md"
+keywords = ["benchmark", "scoring", "cli", "extraction", "validation"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "benchmark"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

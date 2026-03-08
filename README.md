@@ -8,9 +8,9 @@
 
 Current status:
 
-- repository status: spec-complete, implementation in progress
+- repository status: spec-complete, scaffolded crate, implementation in progress
 - source of truth: [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md)
-- current repo contents: plan + Beads execution graph, not a released CLI yet
+- current repo contents: plan + Beads execution graph + compileable Rust crate shell, not a released scoring CLI yet
 
 The examples below describe the target `v0` contract. They are the implementation target, not a claim that the binary is already published.
 
@@ -24,6 +24,7 @@ There is no installable binary yet. The current quickstart is for contributors a
 cd benchmark
 sed -n '1,260p' docs/PLAN_BENCHMARK.md
 br ready
+cargo test
 ```
 
 If you are here to use the eventual CLI, the plan and examples below describe the intended contract. If you are here to build it, start with the plan and the Beads graph.

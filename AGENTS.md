@@ -46,8 +46,10 @@ Current contents:
 - [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md) — full implementation-grade spec
 - [.beads/issues.jsonl](./.beads/issues.jsonl) — execution graph for the implementation swarm
 - [README.md](./README.md) — operator-facing contract and project framing
+- Rust crate scaffold with the planned module/file map and a thin refusal shell
 
-There is no Rust crate yet. The first real implementation task is the scaffold bead.
+The crate shell exists now, but scoring behavior does not. The next real tasks
+fill in those modules without reopening the scaffold shape.
 
 Implication:
 
@@ -67,9 +69,11 @@ sed -n '1,260p' docs/PLAN_BENCHMARK.md
 br ready
 br blocked
 
-# Current docs-only verification
-git diff --check
-ubs README.md AGENTS.md docs/PLAN_BENCHMARK.md
+# Current scaffold verification
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+ubs .
 
 # Mandatory gate once the crate exists
 cargo fmt --check
@@ -246,7 +250,7 @@ git diff --check
 ubs README.md AGENTS.md docs/PLAN_BENCHMARK.md
 ```
 
-### After scaffold lands
+### Current scaffold state
 
 Run this after substantive code changes:
 
