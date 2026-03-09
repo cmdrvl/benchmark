@@ -383,6 +383,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "HOMEBREW_TAP_TOKEN is not configured for this repository."
+            exit 1
+          fi
           git clone "https://x-access-token:${GH_TOKEN}@github.com/cmdrvl/homebrew-tap.git" tap
           cp cmdrvl-benchmark.rb tap/Formula/cmdrvl-benchmark.rb
           cd tap
