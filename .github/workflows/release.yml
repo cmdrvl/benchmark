@@ -388,10 +388,11 @@ jobs:
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
+          git add Formula/cmdrvl-benchmark.rb
+          if git diff --cached --quiet; then
             echo "No changes to formula"
           else
-            git add Formula/cmdrvl-benchmark.rb
             git commit -m "cmdrvl-benchmark ${{ steps.version.outputs.version }}"
-            git push
+            git push origin HEAD:main
+            git push origin HEAD:master
           fi
