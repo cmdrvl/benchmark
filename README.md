@@ -57,6 +57,7 @@ You provide:
 
 - row-level `PASS`, `FAIL`, and `SKIP` outcomes
 - separate `accuracy` and `coverage`
+- a derived `quality_band` for downstream `assess` policies
 - deterministic JSON and human-readable reports
 - optional lock verification so scoring happens against trusted inputs
 
@@ -68,7 +69,7 @@ You provide:
 - **Missingness stays separate from correctness**. If an entity or field is absent, that is a skip, not a silent failure and not a fake pass.
 - **Comparison semantics are explicit**. Assertions declare `compare_as`; the tool never guesses numeric or date semantics from formatting accidents.
 - **Deterministic reports**. Same candidate bytes plus same assertions bytes should produce the same ordered report.
-- **Spine boundary discipline**. `benchmark` scores against gold truth; it does not resolve entities, validate business rules, or make proceed/block decisions.
+- **Spine boundary discipline**. `benchmark` scores against gold truth, may emit a derived quality signal for downstream policy, and still does not resolve entities, validate business rules, or make proceed/block decisions.
 
 ---
 
@@ -137,6 +138,7 @@ Current JSON shape:
 
 ```json
 {
+  "tool": "benchmark",
   "version": "benchmark.v0",
   "outcome": "FAIL",
   "candidate": "normalized.csv",
@@ -145,6 +147,10 @@ Current JSON shape:
   "assertions_hash": "sha256:f1e2d3...",
   "key_column": "comp_id",
   "input_verification": null,
+  "policy_signals": {
+    "quality_band": "LOW",
+    "quality_band_basis": "assertion_failures_present"
+  },
   "summary": {
     "total": 216,
     "passed": 214,
@@ -182,6 +188,14 @@ Current JSON shape:
   "refusal": null
 }
 ```
+
+The policy signal is intentionally coarse and fully derived from the raw score:
+
+- `HIGH` = no failures and no skips
+- `ACCEPTABLE` = no failures but one or more skips
+- `LOW` = one or more failed assertions
+
+Tournament ranking still uses `summary.accuracy` and `summary.coverage`. `assess` can consume `policy_signals.quality_band` without becoming a numeric-threshold engine.
 
 Current human output:
 
@@ -284,6 +298,13 @@ If `resolved = 0`, then:
 
 That distinction matters in tournament and factory settings. A system that never found any benchmarked facts should not look like a system that found facts and got them all wrong.
 
+`benchmark` also exposes a derived policy-facing classification:
+
+- `quality_band = HIGH | ACCEPTABLE | LOW`
+- `quality_band_basis` explains which deterministic rule produced that band
+
+That keeps the scoring basis auditable while giving `assess` a small exact-match surface.
+
 ---
 
 ## Comparison modes
@@ -364,6 +385,8 @@ In tournament mode, the ranking signal is:
 
 - primary: `summary.accuracy`
 - tie-breaker: `summary.coverage`
+
+`assess` may gate on `policy_signals.quality_band`, but ranking should continue to use the raw summary metrics.
 
 ---
 

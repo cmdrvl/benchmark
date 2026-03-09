@@ -58,8 +58,9 @@ These are engineering contracts, not aspirations. If any are violated, `benchmar
 2. No ambiguous entity lookup. Duplicate or null benchmark keys refuse the run.
 3. Missingness is not failure. Missing rows/fields become skips, not silent passes and not fabricated values.
 4. Accuracy and coverage stay separate. The tool never compresses them into one score.
-5. Ground truth is imported, not minted. `benchmark` consumes human-validated assertions and does not promote prior outputs into truth.
-6. Reports are deterministic. Same bytes in candidate and assertions produce the same ordered report.
+5. Policy signaling stays derived, not adjudicated. `benchmark` may emit a deterministic quality band derived from its own summary metrics, but it does not decide proceed/block outcomes.
+6. Ground truth is imported, not minted. `benchmark` consumes human-validated assertions and does not promote prior outputs into truth.
+7. Reports are deterministic. Same bytes in candidate and assertions produce the same ordered report.
 
 ---
 
@@ -196,6 +197,29 @@ If an assertion declares an invalid `compare_as` / `tolerance` combination, `ben
 
 If `resolved = 0`, `accuracy` should be `null` rather than `0`. That distinguishes "nothing benchmarkable was found" from "everything benchmarkable was wrong."
 
+### Policy signals
+
+To keep `assess v0` narrow and exact-match-only, `benchmark` may emit a small, tool-owned policy surface derived from the report summary.
+
+- `quality_band`: `HIGH | ACCEPTABLE | LOW`
+- `quality_band_basis`: stable rule identifier explaining why that band was selected
+
+V0 mapping:
+
+- `HIGH`
+  - `failed = 0`
+  - `skipped = 0`
+  - `quality_band_basis = "all_pass_no_skip"`
+- `ACCEPTABLE`
+  - `failed = 0`
+  - `skipped > 0`
+  - `quality_band_basis = "skip_only"`
+- `LOW`
+  - `failed > 0`
+  - `quality_band_basis = "assertion_failures_present"`
+
+This is deliberately coarse. Tournament ranking still uses raw `summary.accuracy` and `summary.coverage`. `assess` may consume the discrete band, but `benchmark` still does not decide proceed/block outcomes.
+
 ## Data model invariants
 
 - `I01` Candidate relation invariant: v0 operates on exactly one row-oriented relation.
@@ -210,6 +234,8 @@ If `resolved = 0`, `accuracy` should be `null` rather than `0`. That distinguish
 - `I10` Accuracy nullability invariant: `accuracy` is `null` when `resolved = 0`.
 - `I11` Input integrity invariant: when `--lock` is provided, lock verification must pass before scoring proceeds.
 - `I12` Deterministic ordering invariant: failures and skips are emitted in stable assertion order.
+- `I13` Tool identity invariant: scoring reports and refusal envelopes emit top-level `tool = "benchmark"`.
+- `I14` Policy-signal invariant: `policy_signals.quality_band` and `quality_band_basis` are pure functions of the scoring summary and never replace the raw summary metrics.
 
 ---
 
@@ -217,6 +243,7 @@ If `resolved = 0`, `accuracy` should be `null` rather than `0`. That distinguish
 
 ```json
 {
+  "tool": "benchmark",
   "version": "benchmark.v0",
   "outcome": "FAIL",
   "candidate": "normalized.csv",
@@ -225,6 +252,10 @@ If `resolved = 0`, `accuracy` should be `null` rather than `0`. That distinguish
   "assertions_hash": "sha256:f1e2d3...",
   "key_column": "comp_id",
   "input_verification": null,
+  "policy_signals": {
+    "quality_band": "LOW",
+    "quality_band_basis": "assertion_failures_present"
+  },
   "summary": {
     "total": 216,
     "passed": 214,
@@ -265,6 +296,7 @@ If `resolved = 0`, `accuracy` should be `null` rather than `0`. That distinguish
 
 | Field | Meaning |
 |-------|---------|
+| `tool` | Canonical tool identity (`benchmark`) |
 | `version` | Report schema version (`benchmark.v0`) |
 | `outcome` | `PASS`, `FAIL`, or `REFUSAL` |
 | `candidate` | Candidate artifact label/path rendered in the report |
@@ -273,6 +305,7 @@ If `resolved = 0`, `accuracy` should be `null` rather than `0`. That distinguish
 | `assertions_hash` | Content hash of the assertions file |
 | `key_column` | Candidate column used for entity lookup |
 | `input_verification` | Lock verification result object or `null` when `--lock` absent |
+| `policy_signals` | Derived, tool-owned policy surface for downstream `assess` matching |
 | `summary` | Aggregate counts and score metrics |
 | `failures` | Row-level failed assertions only |
 | `skipped` | Row-level skipped assertions only |
@@ -338,8 +371,10 @@ Human mode is a rendering of the same report contract, not a separate semantics 
 
 ```json
 {
+  "tool": "benchmark",
   "version": "benchmark.v0",
   "outcome": "REFUSAL",
+  "policy_signals": {},
   "refusal": {
     "code": "E_KEY_NOT_UNIQUE",
     "message": "Candidate key column 'comp_id' contains duplicate values",
@@ -370,6 +405,8 @@ Refusal envelopes should be emitted for exit `2` in both default and `--json` mo
 | `C10` | Optional lock verification gates scoring input integrity | `lock_check.rs` |
 | `C11` | Report ordering is stable for identical inputs | `engine.rs` / `report.rs` |
 | `C12` | Human and JSON modes render the same underlying report data | `render.rs` |
+| `C13` | Reports and refusals emit canonical top-level tool identity | `report.rs` / `refusal.rs` / `render.rs` |
+| `C14` | `policy_signals` are deterministic derived fields, not a second scoring engine | `report.rs` |
 
 ## Threat / edge table
 
@@ -397,7 +434,7 @@ benchmark normalized.csv --assertions gold_set.jsonl --key comp_id --json
 # Score a row-oriented JSONL extraction
 benchmark normalized.jsonl --assertions lease_gold.jsonl --key tenant_id --json
 
-# benchmark -> assess: raw metrics feed decision
+# benchmark -> assess: derived quality band plus raw metrics feed decision
 benchmark normalized.csv --assertions gold.jsonl --key comp_id --json > benchmark.report.json
 assess benchmark.report.json --policy extraction_quality.v1 > decision.json
 
@@ -415,6 +452,8 @@ Each document processed, a human spot-checks N values. Those N assertions go int
 ## Tournament integration
 
 Run N pipeline configurations, produce N packs, benchmark each against the same gold set, then rank by `summary.accuracy` with `summary.coverage` as a tie-breaker. The gold set is the constant; the pipeline configuration is the variable.
+
+`assess` may use `policy_signals.quality_band` for coarse gating, but tournament ranking should continue to use the raw summary metrics rather than the band.
 
 `summary.accuracy` measures correctness on resolved assertions only:
 
@@ -514,7 +553,7 @@ Build `compare.rs` for explicit `string` / `number` / `percent` / `date` semanti
 
 Build `engine.rs` and `report.rs` to join assertions to candidate rows, emit PASS/FAIL/SKIP outcomes, and compute summaries.
 
-- Satisfies: `C06`, `C08`, `C09`, `C11`
+- Satisfies: `C06`, `C08`, `C09`, `C11`, `C14`
 - Threats: `T07`, `T10`
 
 ### Stage D7 — Lock integration
@@ -528,14 +567,14 @@ Build `lock_check.rs` and wire `--lock` so candidate membership/hash checks gate
 
 Build `render.rs` for the default operator summary and the JSON report shape.
 
-- Satisfies: `C12`
+- Satisfies: `C12`, `C13`
 - Must prove: human mode is a rendering of the same report contract, not a separate code path with separate math
 
 ### Stage D9 — Hardening and fixtures
 
 Freeze fixtures, refusal examples, deterministic ordering tests, and representative candidate-format coverage.
 
-- Satisfies: `I01` through `I12`
+- Satisfies: `I01` through `I14`
 - Exit condition: all quality gates pass
 
 ## Test matrix
@@ -547,6 +586,7 @@ Freeze fixtures, refusal examples, deterministic ordering tests, and representat
 | `BENCH-U003` | `C07` | unit | `number` comparison honors absolute tolerance |
 | `BENCH-U004` | `C07` | unit | `percent` comparison does not auto-convert ratio-form decimals |
 | `BENCH-U005` | `C07` | unit | `date` comparison normalizes canonical date text |
+| `BENCH-U006` | `C14`, `I14` | unit | `quality_band` and `quality_band_basis` derive deterministically from `failed` and `skipped` counts |
 | `BENCH-I001` | `C01`, `T06` | integration | nested/document-shaped JSON is rejected |
 | `BENCH-I002` | `C03`, `T02` | integration | missing key column refuses with `E_KEY_NOT_FOUND` |
 | `BENCH-I003` | `C04`, `T03` | integration | duplicate key rows refuse with `E_KEY_NOT_UNIQUE` |
@@ -559,6 +599,7 @@ Freeze fixtures, refusal examples, deterministic ordering tests, and representat
 | `BENCH-I010` | `C10`, `T09` | integration | non-member candidate against lockfile refuses before scoring |
 | `BENCH-I011` | `C11`, `T10` | integration | identical inputs emit stable row ordering across repeated runs |
 | `BENCH-I012` | `C12` | integration | human mode and JSON mode reflect the same failure and skip counts |
+| `BENCH-I013` | `C13`, `C14`, `I13` | integration | scoring reports emit top-level `tool` plus derived `policy_signals`, and refusal envelopes emit top-level `tool` with empty `policy_signals` |
 
 ## Quality gates
 
@@ -568,6 +609,7 @@ Freeze fixtures, refusal examples, deterministic ordering tests, and representat
 - `Gate 4: Integrity gate` — `--lock` tests prove candidate membership and hash drift are checked before scoring.
 - `Gate 5: Determinism gate` — repeated runs over the same fixture bytes produce byte-identical JSON output.
 - `Gate 6: Rendering parity gate` — human output and JSON output disagree only in formatting, never in counts or row identities.
+- `Gate 7: Policy-signal gate` — `quality_band` and `quality_band_basis` are deterministic, auditable, and consistent with the raw summary counts.
 
 ## Execution commands
 

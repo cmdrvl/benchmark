@@ -25,6 +25,7 @@ What `benchmark` owns:
 - key validation
 - explicit value comparison
 - deterministic score construction
+- deterministic derived quality signaling for downstream policy
 - optional lock verification
 
 What `benchmark` does not own:
@@ -149,6 +150,12 @@ Target output modes:
 
 Refusal envelopes are part of the contract. Do not replace them with ad-hoc text.
 
+Machine-report specifics that matter for downstream compatibility:
+
+- scoring reports and refusals emit top-level `tool: "benchmark"`
+- scoring reports emit derived `policy_signals.quality_band`
+- `quality_band` is derived from the raw summary; it is not a separate decision engine
+
 ---
 
 ## Core Invariants (Do Not Break)
@@ -200,19 +207,30 @@ Hard math invariants:
 
 If `resolved = 0`, `accuracy` must be `null`.
 
-### 6. Ground truth is imported, not minted
+### 6. Policy signals are derived only
+
+`benchmark` may expose a coarse `quality_band` for downstream `assess` policies.
+
+That signal must:
+
+- be a pure function of the benchmark summary
+- stay auditable against `failed`, `skipped`, `accuracy`, and `coverage`
+- never replace the raw metrics as the source of truth
+- never make proceed/block decisions inside `benchmark`
+
+### 7. Ground truth is imported, not minted
 
 Approved outputs are not automatically gold truth.
 
 Do not implement any shortcut that promotes prior pipeline outputs into benchmark assertions without explicit human review.
 
-### 7. Deterministic ordering
+### 8. Deterministic ordering
 
 Failures and skips must preserve stable assertion order.
 
 Same candidate bytes plus same assertions bytes should produce the same ordered report.
 
-### 8. Candidate load should not thrash
+### 9. Candidate load should not thrash
 
 Target runtime safety rule:
 
@@ -328,7 +346,9 @@ If direct MCP Agent Mail tools are unavailable:
 
 ---
 
-## Beads (br) — Dependency-Aware Issue Tracking
+## br (beads_rust) — Dependency-Aware Issue Tracking
+
+**Note:** `br` is non-invasive and never executes git commands. After `br sync --flush-only`, you must manually run `git add .beads/` and `git commit`.
 
 Beads is the execution source of truth in this repo.
 
@@ -341,11 +361,13 @@ br show <id>
 br update <id> --status in_progress
 br close <id> --reason "Completed"
 br sync --flush-only
+git add .beads/
+git commit -m "sync beads"
 ```
 
 Conventions:
 
-- include bead IDs in coordination subjects, for example `[bd-6oe] Start engine/report math`
+- include bead IDs in coordination subjects, for example `[<bead-id>] Start engine/report math`
 - use the bead ID in reservation reasons when the tool supports it
 - prefer concrete ready beads over the epic tracker
 
@@ -454,6 +476,8 @@ Use the plan vocabulary directly:
 - `REFUSAL`
 - `accuracy`
 - `coverage`
+- `quality_band`
+- `quality_band_basis`
 - `input_verification`
 
 Avoid renaming these into "friendlier" local synonyms.
