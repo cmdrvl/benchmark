@@ -323,6 +323,7 @@ key: comp_id
 passed: 214
 failed: 1
 skipped: 1
+quality_band: LOW (assertion_failures_present)
 accuracy: 0.995
 coverage: 0.995
 

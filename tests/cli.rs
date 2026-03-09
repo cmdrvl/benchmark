@@ -161,8 +161,10 @@ fn bench_u_execute_returns_json_refusal_with_exit_2() -> Result<(), Box<dyn std:
     assert_eq!(execution.exit_code(), 2);
 
     let json: serde_json::Value = serde_json::from_str(&execution.stdout)?;
+    assert_eq!(json["tool"], "benchmark");
     assert_eq!(json["version"], "benchmark.v0");
     assert_eq!(json["outcome"], "REFUSAL");
+    assert_eq!(json["policy_signals"], serde_json::json!({}));
     assert_eq!(json["refusal"]["code"], "E_INPUT_NOT_LOCKED");
     assert!(json["refusal"]["next_command"].as_str().is_some());
 
@@ -199,7 +201,13 @@ fn bench_i_execute_returns_json_pass_with_exit_0() -> Result<(), Box<dyn std::er
     assert_eq!(execution.exit_code(), 0);
 
     let json: serde_json::Value = serde_json::from_str(&execution.stdout)?;
+    assert_eq!(json["tool"], "benchmark");
     assert_eq!(json["outcome"], "PASS");
+    assert_eq!(json["policy_signals"]["quality_band"], "HIGH");
+    assert_eq!(
+        json["policy_signals"]["quality_band_basis"],
+        "all_pass_no_skip"
+    );
     assert_eq!(json["summary"]["passed"], 2);
     assert_eq!(json["summary"]["failed"], 0);
     assert_eq!(json["summary"]["skipped"], 0);
@@ -227,6 +235,11 @@ fn bench_i_execute_returns_human_fail_with_exit_1() -> Result<(), Box<dyn std::e
     assert!(execution.stdout.contains("passed: 4"));
     assert!(execution.stdout.contains("failed: 1"));
     assert!(execution.stdout.contains("skipped: 2"));
+    assert!(
+        execution
+            .stdout
+            .contains("quality_band: LOW (assertion_failures_present)")
+    );
     assert!(execution.stdout.contains(
         "FAIL comp_3 cap_rate expected=7.50% actual=7.25% compare_as=percent tolerance=0.01"
     ));
@@ -284,6 +297,17 @@ fn BENCH_I012_human_and_json_modes_reflect_same_failures_and_skips()
     assert_eq!(json.outcome, Outcome::Fail);
     assert!(human.stdout.contains("failed: 1"));
     assert!(human.stdout.contains("skipped: 2"));
+    assert!(
+        human
+            .stdout
+            .contains("quality_band: LOW (assertion_failures_present)")
+    );
+    assert_eq!(report["tool"], "benchmark");
+    assert_eq!(report["policy_signals"]["quality_band"], "LOW");
+    assert_eq!(
+        report["policy_signals"]["quality_band_basis"],
+        "assertion_failures_present"
+    );
     assert_eq!(report["summary"]["failed"], 1);
     assert_eq!(report["summary"]["skipped"], 2);
     assert!(human.stdout.contains("FAIL comp_3 cap_rate"));
@@ -310,10 +334,16 @@ fn bench_u_render_report_json_preserves_machine_contract() -> Result<(), Box<dyn
     let json: serde_json::Value = serde_json::from_str(&rendered)?;
 
     assert_eq!(json["version"], "benchmark.v0");
+    assert_eq!(json["tool"], "benchmark");
     assert_eq!(json["outcome"], "FAIL");
     assert_eq!(json["candidate"], "normalized.csv");
     assert_eq!(json["candidate_hash"], "sha256:candidate");
     assert_eq!(json["assertions_hash"], "sha256:assertions");
+    assert_eq!(json["policy_signals"]["quality_band"], "LOW");
+    assert_eq!(
+        json["policy_signals"]["quality_band_basis"],
+        "assertion_failures_present"
+    );
     assert_eq!(json["summary"]["failed"], 1);
     assert_eq!(json["summary"]["by_severity"]["major"]["failed"], 1);
     assert_eq!(
@@ -338,6 +368,7 @@ fn bench_u_render_report_human_renders_compact_fail_summary()
     assert!(rendered.contains("passed: 0"));
     assert!(rendered.contains("failed: 1"));
     assert!(rendered.contains("skipped: 0"));
+    assert!(rendered.contains("quality_band: LOW (assertion_failures_present)"));
     assert!(rendered.contains("accuracy: 0.0"));
     assert!(rendered.contains("coverage: 1.0"));
     assert!(rendered.contains(
@@ -356,6 +387,7 @@ fn bench_u_render_report_human_renders_pass_without_detail_lines()
     assert!(rendered.contains("passed: 1"));
     assert!(rendered.contains("failed: 0"));
     assert!(rendered.contains("skipped: 0"));
+    assert!(rendered.contains("quality_band: HIGH (all_pass_no_skip)"));
     assert!(rendered.contains("accuracy: 1.0"));
     assert!(rendered.contains("coverage: 1.0"));
     assert!(!rendered.contains("\nFAIL "));

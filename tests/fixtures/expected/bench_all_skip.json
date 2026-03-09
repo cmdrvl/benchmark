@@ -1,7 +1,12 @@
 {
+  "tool": "benchmark",
   "version": "benchmark.v0",
   "outcome": "FAIL",
   "key_column": "comp_id",
+  "policy_signals": {
+    "quality_band": "ACCEPTABLE",
+    "quality_band_basis": "skip_only"
+  },
   "summary": {
     "total": 2,
     "passed": 0,

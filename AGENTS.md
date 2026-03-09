@@ -154,6 +154,7 @@ Machine-report specifics that matter for downstream compatibility:
 
 - scoring reports and refusals emit top-level `tool: "benchmark"`
 - scoring reports emit derived `policy_signals.quality_band`
+- refusal envelopes emit stable top-level `policy_signals: {}`
 - `quality_band` is derived from the raw summary; it is not a separate decision engine
 
 ---

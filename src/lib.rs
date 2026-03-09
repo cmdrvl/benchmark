@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+pub const TOOL: &str = "benchmark";
+pub const REPORT_VERSION: &str = "benchmark.v0";
+
 pub mod assertions;
 pub mod candidate;
 pub mod cli;

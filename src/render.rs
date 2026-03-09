@@ -33,6 +33,10 @@ fn render_report_human(report: &BenchmarkReport) -> String {
         format!("failed: {}", report.summary.failed),
         format!("skipped: {}", report.summary.skipped),
         format!(
+            "quality_band: {} ({})",
+            report.policy_signals.quality_band, report.policy_signals.quality_band_basis
+        ),
+        format!(
             "accuracy: {}",
             format_optional_score(report.summary.accuracy)
         ),
@@ -95,6 +99,28 @@ fn skip_reason_label(reason: SkipReason) -> &'static str {
     match reason {
         SkipReason::SkipEntity => "SKIP_ENTITY",
         SkipReason::SkipField => "SKIP_FIELD",
+    }
+}
+
+impl std::fmt::Display for crate::report::QualityBand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::High => "HIGH",
+            Self::Acceptable => "ACCEPTABLE",
+            Self::Low => "LOW",
+        };
+        f.write_str(label)
+    }
+}
+
+impl std::fmt::Display for crate::report::QualityBandBasis {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::AllPassNoSkip => "all_pass_no_skip",
+            Self::SkipOnly => "skip_only",
+            Self::AssertionFailuresPresent => "assertion_failures_present",
+        };
+        f.write_str(label)
     }
 }
 
@@ -194,9 +220,15 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&rendered)?;
 
         assert_eq!(json["version"], "benchmark.v0");
+        assert_eq!(json["tool"], "benchmark");
         assert_eq!(json["outcome"], "FAIL");
         assert_eq!(json["candidate"], "normalized.csv");
         assert_eq!(json["key_column"], "comp_id");
+        assert_eq!(json["policy_signals"]["quality_band"], "LOW");
+        assert_eq!(
+            json["policy_signals"]["quality_band_basis"],
+            "assertion_failures_present"
+        );
         assert_eq!(json["summary"]["failed"], 1);
         assert_eq!(json["summary"]["skipped"], 1);
         assert_eq!(json["summary"]["by_severity"]["major"]["failed"], 1);
@@ -223,6 +255,7 @@ mod tests {
         assert!(rendered.contains("passed: 0"));
         assert!(rendered.contains("failed: 1"));
         assert!(rendered.contains("skipped: 1"));
+        assert!(rendered.contains("quality_band: LOW (assertion_failures_present)"));
         assert!(rendered.contains("accuracy: 0.0"));
         assert!(rendered.contains("coverage: 0.5"));
         assert!(rendered.contains(

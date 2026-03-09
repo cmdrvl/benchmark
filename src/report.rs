@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{assertions::Severity, compare::CompareAs, lock_check::InputVerification};
-
-pub const VERSION: &str = "benchmark.v0";
+use crate::{
+    REPORT_VERSION, TOOL, assertions::Severity, compare::CompareAs, lock_check::InputVerification,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -40,6 +40,7 @@ pub struct ReportContext {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BenchmarkReport {
+    pub tool: String,
     pub version: String,
     pub outcome: ReportOutcome,
     pub candidate: String,
@@ -48,6 +49,7 @@ pub struct BenchmarkReport {
     pub assertions_hash: String,
     pub key_column: String,
     pub input_verification: Option<InputVerification>,
+    pub policy_signals: PolicySignals,
     pub summary: Summary,
     pub failures: Vec<FailureRecord>,
     pub skipped: Vec<SkipRecord>,
@@ -73,7 +75,8 @@ impl BenchmarkReport {
             .collect();
 
         Self {
-            version: VERSION.to_owned(),
+            tool: TOOL.to_owned(),
+            version: REPORT_VERSION.to_owned(),
             outcome,
             candidate: context.candidate,
             candidate_hash: context.candidate_hash,
@@ -81,6 +84,7 @@ impl BenchmarkReport {
             assertions_hash: context.assertions_hash,
             key_column: context.key_column,
             input_verification: context.input_verification,
+            policy_signals: PolicySignals::from_summary(&summary),
             summary,
             failures,
             skipped,
@@ -112,6 +116,51 @@ impl Default for Summary {
             accuracy: None,
             coverage: 0.0,
             by_severity: SeverityBreakdown::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum QualityBand {
+    High,
+    Acceptable,
+    Low,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityBandBasis {
+    AllPassNoSkip,
+    SkipOnly,
+    AssertionFailuresPresent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicySignals {
+    pub quality_band: QualityBand,
+    pub quality_band_basis: QualityBandBasis,
+}
+
+impl PolicySignals {
+    pub fn from_summary(summary: &Summary) -> Self {
+        if summary.failed > 0 {
+            return Self {
+                quality_band: QualityBand::Low,
+                quality_band_basis: QualityBandBasis::AssertionFailuresPresent,
+            };
+        }
+
+        if summary.skipped > 0 {
+            return Self {
+                quality_band: QualityBand::Acceptable,
+                quality_band_basis: QualityBandBasis::SkipOnly,
+            };
+        }
+
+        Self {
+            quality_band: QualityBand::High,
+            quality_band_basis: QualityBandBasis::AllPassNoSkip,
         }
     }
 }
@@ -266,8 +315,8 @@ mod tests {
         assertions::Severity,
         compare::CompareAs,
         report::{
-            AssertionOutcome, BenchmarkReport, EvaluatedAssertion, ReportContext, ReportOutcome,
-            SkipReason,
+            AssertionOutcome, BenchmarkReport, EvaluatedAssertion, PolicySignals, QualityBand,
+            QualityBandBasis, ReportContext, ReportOutcome, SkipReason, Summary,
         },
     };
 
@@ -331,6 +380,7 @@ mod tests {
         );
 
         assert_eq!(report.outcome, ReportOutcome::Fail);
+        assert_eq!(report.tool, "benchmark");
         assert_eq!(report.summary.total, 4);
         assert_eq!(report.summary.passed, 1);
         assert_eq!(report.summary.failed, 1);
@@ -342,6 +392,13 @@ mod tests {
         assert_eq!(report.summary.by_severity.major.failed, 1);
         assert_eq!(report.summary.by_severity.major.skipped, 1);
         assert_eq!(report.summary.by_severity.minor.skipped, 1);
+        assert_eq!(
+            report.policy_signals,
+            PolicySignals {
+                quality_band: QualityBand::Low,
+                quality_band_basis: QualityBandBasis::AssertionFailuresPresent,
+            }
+        );
         assert_eq!(report.failures.len(), 1);
         assert_eq!(report.skipped.len(), 2);
         assert_eq!(report.skipped[0].reason, SkipReason::SkipEntity);
@@ -372,5 +429,68 @@ mod tests {
         assert_eq!(report.summary.resolved, 0);
         assert_eq!(report.summary.accuracy, None);
         assert_eq!(report.summary.coverage, 0.0);
+        assert_eq!(
+            report.policy_signals,
+            PolicySignals {
+                quality_band: QualityBand::Acceptable,
+                quality_band_basis: QualityBandBasis::SkipOnly,
+            }
+        );
+    }
+
+    #[test]
+    fn bench_u_policy_signals_are_deterministic_functions_of_summary() {
+        let high = PolicySignals::from_summary(&Summary {
+            total: 2,
+            passed: 2,
+            failed: 0,
+            skipped: 0,
+            resolved: 2,
+            accuracy: Some(1.0),
+            coverage: 1.0,
+            by_severity: Default::default(),
+        });
+        let acceptable = PolicySignals::from_summary(&Summary {
+            total: 2,
+            passed: 1,
+            failed: 0,
+            skipped: 1,
+            resolved: 1,
+            accuracy: Some(1.0),
+            coverage: 0.5,
+            by_severity: Default::default(),
+        });
+        let low = PolicySignals::from_summary(&Summary {
+            total: 2,
+            passed: 1,
+            failed: 1,
+            skipped: 0,
+            resolved: 2,
+            accuracy: Some(0.5),
+            coverage: 1.0,
+            by_severity: Default::default(),
+        });
+
+        assert_eq!(
+            high,
+            PolicySignals {
+                quality_band: QualityBand::High,
+                quality_band_basis: QualityBandBasis::AllPassNoSkip,
+            }
+        );
+        assert_eq!(
+            acceptable,
+            PolicySignals {
+                quality_band: QualityBand::Acceptable,
+                quality_band_basis: QualityBandBasis::SkipOnly,
+            }
+        );
+        assert_eq!(
+            low,
+            PolicySignals {
+                quality_band: QualityBand::Low,
+                quality_band_basis: QualityBandBasis::AssertionFailuresPresent,
+            }
+        );
     }
 }

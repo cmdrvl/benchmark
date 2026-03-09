@@ -2,14 +2,14 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use thiserror::Error;
 
-use crate::cli::BenchmarkCommand;
-
-pub const VERSION: &str = "benchmark.v0";
+use crate::{REPORT_VERSION, TOOL, cli::BenchmarkCommand};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RefusalEnvelope {
+    tool: String,
     version: String,
     outcome: &'static str,
+    policy_signals: RefusalPolicySignals,
     refusal: Refusal,
 }
 
@@ -20,6 +20,9 @@ pub struct Refusal {
     detail: Value,
     next_command: Option<String>,
 }
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct RefusalPolicySignals {}
 
 #[derive(Debug, Error)]
 pub enum RefusalError {
@@ -35,8 +38,10 @@ impl RefusalEnvelope {
         next_command: Option<String>,
     ) -> Self {
         Self {
-            version: VERSION.to_owned(),
+            tool: TOOL.to_owned(),
+            version: REPORT_VERSION.to_owned(),
             outcome: "REFUSAL",
+            policy_signals: RefusalPolicySignals::default(),
             refusal: Refusal {
                 code: code.into(),
                 message: message.into(),

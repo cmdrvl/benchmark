@@ -155,8 +155,13 @@ fn BENCH_I007_all_skipped_report_keeps_accuracy_null() -> Result<(), Box<dyn std
     assert!(report.assertions_hash.starts_with("sha256:"));
 
     assert_eq!(report.version, expected["version"]);
+    assert_eq!(report.tool, expected["tool"]);
     assert_eq!(report.outcome, ReportOutcome::Fail);
     assert_eq!(report.key_column, expected["key_column"]);
+    assert_eq!(
+        serde_json::to_value(&report.policy_signals)?,
+        expected["policy_signals"]
+    );
     assert_eq!(
         report.summary.total,
         expected["summary"]["total"].as_u64().unwrap()
@@ -224,8 +229,13 @@ fn BENCH_I008_mixed_results_compute_summary_and_preserve_order()
     assert!(report.assertions_hash.starts_with("sha256:"));
 
     assert_eq!(report.version, expected["version"]);
+    assert_eq!(report.tool, expected["tool"]);
     assert_eq!(report.outcome, ReportOutcome::Fail);
     assert_eq!(report.key_column, expected["key_column"]);
+    assert_eq!(
+        serde_json::to_value(&report.policy_signals)?,
+        expected["policy_signals"]
+    );
     assert_eq!(
         report.summary.total,
         expected["summary"]["total"].as_u64().unwrap()
