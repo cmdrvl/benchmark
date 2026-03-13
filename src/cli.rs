@@ -1,6 +1,14 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+
+use crate::render::RenderMode;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SummaryRenderMode {
+    Summary,
+    SummaryTsv,
+}
 
 #[derive(Debug, Clone, Parser)]
 #[command(
@@ -34,6 +42,9 @@ pub struct Cli {
 
     #[arg(long, help = "Emit machine-readable JSON output")]
     pub json: bool,
+
+    #[arg(long, value_enum, conflicts_with = "json")]
+    pub render: Option<SummaryRenderMode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +53,7 @@ pub struct BenchmarkCommand {
     pub assertions: PathBuf,
     pub key: String,
     pub lockfiles: Vec<PathBuf>,
-    pub json: bool,
+    pub render_mode: RenderMode,
 }
 
 impl From<Cli> for BenchmarkCommand {
@@ -52,7 +63,12 @@ impl From<Cli> for BenchmarkCommand {
             assertions: cli.assertions,
             key: cli.key,
             lockfiles: cli.lock,
-            json: cli.json,
+            render_mode: match (cli.json, cli.render) {
+                (true, _) => RenderMode::Json,
+                (false, Some(SummaryRenderMode::Summary)) => RenderMode::Summary,
+                (false, Some(SummaryRenderMode::SummaryTsv)) => RenderMode::SummaryTsv,
+                (false, None) => RenderMode::Human,
+            },
         }
     }
 }

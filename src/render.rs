@@ -3,24 +3,34 @@ use crate::{
     report::{BenchmarkReport, ReportOutcome, SkipReason},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderMode {
+    Human,
+    Json,
+    Summary,
+    SummaryTsv,
+}
+
 pub fn render_report(
     report: &BenchmarkReport,
-    json_mode: bool,
+    render_mode: RenderMode,
 ) -> Result<String, serde_json::Error> {
-    if json_mode {
-        let mut rendered = serde_json::to_string_pretty(report)?;
-        rendered.push('\n');
-        return Ok(rendered);
+    match render_mode {
+        RenderMode::Json => {
+            let rendered = serde_json::to_string_pretty(report)?;
+            Ok(with_trailing_newline(rendered))
+        }
+        RenderMode::Human => Ok(render_report_human(report)),
+        RenderMode::Summary => Ok(render_report_summary(report)),
+        RenderMode::SummaryTsv => Ok(render_report_summary_tsv(report)),
     }
-
-    Ok(render_report_human(report))
 }
 
 pub fn render_refusal(
     refusal: &RefusalEnvelope,
-    json_mode: bool,
+    render_mode: RenderMode,
 ) -> Result<String, serde_json::Error> {
-    refusal.render(json_mode)
+    refusal.render(render_mode)
 }
 
 fn render_report_human(report: &BenchmarkReport) -> String {
@@ -58,6 +68,54 @@ fn render_report_human(report: &BenchmarkReport) -> String {
     let mut rendered = lines.join("\n");
     rendered.push('\n');
     rendered
+}
+
+fn render_report_summary(report: &BenchmarkReport) -> String {
+    with_trailing_newline(format!(
+        "tool={} version={} candidate={} outcome={} accuracy={} coverage={} failed={} skipped={} quality_band={} refusal_code={}",
+        report.tool,
+        report.version,
+        placeholder(&report.candidate),
+        outcome_label(report.outcome),
+        format_optional_score(report.summary.accuracy),
+        format_score(report.summary.coverage),
+        report.summary.failed,
+        report.summary.skipped,
+        report.policy_signals.quality_band,
+        "-"
+    ))
+}
+
+fn render_report_summary_tsv(report: &BenchmarkReport) -> String {
+    let header = [
+        "tool",
+        "version",
+        "candidate",
+        "outcome",
+        "accuracy",
+        "coverage",
+        "failed",
+        "skipped",
+        "quality_band",
+        "refusal_code",
+    ]
+    .join("\t");
+    let values = [
+        report.tool.clone(),
+        report.version.clone(),
+        placeholder(&report.candidate),
+        outcome_label(report.outcome).to_owned(),
+        format_optional_score(report.summary.accuracy),
+        format_score(report.summary.coverage),
+        report.summary.failed.to_string(),
+        report.summary.skipped.to_string(),
+        report.policy_signals.quality_band.to_string(),
+        "-".to_owned(),
+    ]
+    .map(sanitize_tsv)
+    .join("\t");
+
+    with_trailing_newline(format!("{header}\n{values}"))
 }
 
 fn render_failure(failure: &crate::report::FailureRecord) -> String {
@@ -139,6 +197,23 @@ fn format_tolerance(value: f64) -> String {
     trim_decimal(value.to_string(), false)
 }
 
+fn placeholder(value: &str) -> String {
+    if value.is_empty() {
+        "-".to_owned()
+    } else {
+        value.to_owned()
+    }
+}
+
+fn sanitize_tsv(value: String) -> String {
+    value.replace('\t', " ").replace(['\n', '\r'], " ")
+}
+
+fn with_trailing_newline(mut rendered: String) -> String {
+    rendered.push('\n');
+    rendered
+}
+
 fn trim_decimal(mut rendered: String, keep_trailing_zero: bool) -> String {
     if rendered.contains('.') {
         while rendered.ends_with('0') {
@@ -165,7 +240,7 @@ mod tests {
         assertions::Severity,
         compare::CompareAs,
         lock_check::InputVerification,
-        render::render_report,
+        render::{RenderMode, render_report},
         report::{AssertionOutcome, BenchmarkReport, EvaluatedAssertion, ReportContext},
     };
 
@@ -216,7 +291,7 @@ mod tests {
     #[test]
     fn bench_u_render_report_json_round_trips_full_contract()
     -> Result<(), Box<dyn std::error::Error>> {
-        let rendered = render_report(&sample_report(), true)?;
+        let rendered = render_report(&sample_report(), RenderMode::Json)?;
         let json: serde_json::Value = serde_json::from_str(&rendered)?;
 
         assert_eq!(json["version"], "benchmark.v0");
@@ -246,7 +321,7 @@ mod tests {
     #[test]
     fn bench_u_render_report_human_emits_compact_summary_and_details()
     -> Result<(), Box<dyn std::error::Error>> {
-        let rendered = render_report(&sample_report(), false)?;
+        let rendered = render_report(&sample_report(), RenderMode::Human)?;
 
         assert!(rendered.contains("BENCHMARK FAIL"));
         assert!(rendered.contains("candidate: normalized.csv"));
@@ -262,6 +337,18 @@ mod tests {
             "FAIL comp_3 cap_rate expected=5.0% actual=5.5% compare_as=percent tolerance=0.01"
         ));
         assert!(rendered.contains("SKIP comp_7 cap_rate reason=SKIP_ENTITY"));
+        Ok(())
+    }
+
+    #[test]
+    fn bench_u_render_report_summary_surfaces_key_scan_fields()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let rendered = render_report(&sample_report(), RenderMode::Summary)?;
+
+        assert_eq!(
+            rendered,
+            "tool=benchmark version=benchmark.v0 candidate=normalized.csv outcome=FAIL accuracy=0.0 coverage=0.5 failed=1 skipped=1 quality_band=LOW refusal_code=-\n"
+        );
         Ok(())
     }
 }

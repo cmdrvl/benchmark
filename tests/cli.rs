@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use benchmark::{
     Outcome,
@@ -7,10 +10,11 @@ use benchmark::{
     compare::CompareAs,
     execute,
     lock_check::InputVerification,
-    render::render_report,
+    render::{RenderMode, render_report},
     report::{AssertionOutcome, BenchmarkReport, EvaluatedAssertion, ReportContext, ReportOutcome},
 };
 use clap::CommandFactory;
+use clap::Parser;
 
 fn fixture(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
@@ -23,6 +27,7 @@ fn fixture_cli(candidate: &str, assertions: &str, lockfiles: &[&str], json: bool
         key: "comp_id".to_owned(),
         lock: lockfiles.iter().map(|path| fixture(path)).collect(),
         json,
+        render: None,
     }
 }
 
@@ -140,6 +145,7 @@ fn bench_u_help_mentions_expected_flags() {
     assert!(help.contains("--key"));
     assert!(help.contains("--lock"));
     assert!(help.contains("--json"));
+    assert!(help.contains("--render"));
 }
 
 #[test]
@@ -186,6 +192,106 @@ fn bench_u_execute_returns_human_refusal_with_exit_2() -> Result<(), Box<dyn std
     assert!(execution.stdout.contains("next: benchmark "));
 
     Ok(())
+}
+
+#[test]
+fn bench_i_pass_scoring_run_keeps_stderr_clean() -> Result<(), Box<dyn std::error::Error>> {
+    let candidate = fixture("tests/fixtures/candidates/smoke/bench_i001_candidate.csv");
+    let assertions = fixture("tests/fixtures/assertions/smoke/bench_i001_gold.jsonl");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_benchmark"))
+        .arg(&candidate)
+        .arg("--assertions")
+        .arg(&assertions)
+        .arg("--key")
+        .arg("comp_id")
+        .arg("--json")
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty(), "stderr was not empty");
+
+    Ok(())
+}
+
+#[test]
+fn bench_i_fail_scoring_run_keeps_stderr_clean() -> Result<(), Box<dyn std::error::Error>> {
+    let candidate = fixture("tests/fixtures/candidates/smoke/bench_mixed.csv");
+    let assertions = fixture("tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_benchmark"))
+        .arg(&candidate)
+        .arg("--assertions")
+        .arg(&assertions)
+        .arg("--key")
+        .arg("comp_id")
+        .arg("--render")
+        .arg("summary")
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty(), "stderr was not empty");
+
+    Ok(())
+}
+
+#[test]
+fn bench_i_refusal_run_still_surfaces_refusal_stdout() -> Result<(), Box<dyn std::error::Error>> {
+    let candidate = fixture("tests/fixtures/candidates/smoke/bench_i001_candidate.csv");
+    let assertions = fixture("tests/fixtures/assertions/refusal/bench_u001_malformed.jsonl");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_benchmark"))
+        .arg(&candidate)
+        .arg("--assertions")
+        .arg(&assertions)
+        .arg("--key")
+        .arg("comp_id")
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(std::str::from_utf8(&output.stdout)?.contains("REFUSAL [E_BAD_ASSERTIONS]"));
+
+    Ok(())
+}
+
+#[test]
+fn bench_u_execute_returns_summary_fail_with_exit_1() -> Result<(), Box<dyn std::error::Error>> {
+    let execution = execute(Cli {
+        candidate: fixture("tests/fixtures/candidates/smoke/bench_mixed.csv"),
+        assertions: fixture("tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl"),
+        key: "comp_id".to_owned(),
+        lock: Vec::new(),
+        json: false,
+        render: Some(benchmark::cli::SummaryRenderMode::Summary),
+    })?;
+
+    assert_eq!(execution.outcome, Outcome::Fail);
+    assert_eq!(execution.exit_code(), 1);
+    assert_eq!(
+        execution.stdout,
+        "tool=benchmark version=benchmark.v0 candidate=/Users/zac/Source/cmdrvl/benchmark/tests/fixtures/candidates/smoke/bench_mixed.csv outcome=FAIL accuracy=0.8 coverage=0.714 failed=1 skipped=2 quality_band=LOW refusal_code=-\n"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn bench_u_json_and_render_flags_conflict() {
+    let err = Cli::try_parse_from([
+        "benchmark",
+        "candidate.csv",
+        "--assertions",
+        "gold.jsonl",
+        "--key",
+        "comp_id",
+        "--json",
+        "--render",
+        "summary",
+    ])
+    .expect_err("json and render should conflict");
+
+    assert!(err.to_string().contains("--json"));
+    assert!(err.to_string().contains("--render"));
 }
 
 #[test]
@@ -330,7 +436,7 @@ fn BENCH_I012_human_and_json_modes_reflect_same_failures_and_skips()
 #[test]
 fn bench_u_render_report_json_preserves_machine_contract() -> Result<(), Box<dyn std::error::Error>>
 {
-    let rendered = render_report(&sample_report(AssertionOutcome::Fail), true)?;
+    let rendered = render_report(&sample_report(AssertionOutcome::Fail), RenderMode::Json)?;
     let json: serde_json::Value = serde_json::from_str(&rendered)?;
 
     assert_eq!(json["version"], "benchmark.v0");
@@ -359,7 +465,7 @@ fn bench_u_render_report_json_preserves_machine_contract() -> Result<(), Box<dyn
 #[test]
 fn bench_u_render_report_human_renders_compact_fail_summary()
 -> Result<(), Box<dyn std::error::Error>> {
-    let rendered = render_report(&sample_report(AssertionOutcome::Fail), false)?;
+    let rendered = render_report(&sample_report(AssertionOutcome::Fail), RenderMode::Human)?;
 
     assert!(rendered.contains("BENCHMARK FAIL"));
     assert!(rendered.contains("candidate: normalized.csv"));
@@ -381,7 +487,7 @@ fn bench_u_render_report_human_renders_compact_fail_summary()
 #[test]
 fn bench_u_render_report_human_renders_pass_without_detail_lines()
 -> Result<(), Box<dyn std::error::Error>> {
-    let rendered = render_report(&sample_report(AssertionOutcome::Pass), false)?;
+    let rendered = render_report(&sample_report(AssertionOutcome::Pass), RenderMode::Human)?;
 
     assert!(rendered.contains("BENCHMARK PASS"));
     assert!(rendered.contains("passed: 1"));
@@ -397,5 +503,20 @@ fn bench_u_render_report_human_renders_pass_without_detail_lines()
         ReportOutcome::Pass
     );
 
+    Ok(())
+}
+
+#[test]
+fn bench_u_render_report_summary_tsv_has_stable_columns() -> Result<(), Box<dyn std::error::Error>>
+{
+    let rendered = render_report(
+        &sample_report(AssertionOutcome::Fail),
+        RenderMode::SummaryTsv,
+    )?;
+
+    assert_eq!(
+        rendered,
+        "tool\tversion\tcandidate\toutcome\taccuracy\tcoverage\tfailed\tskipped\tquality_band\trefusal_code\nbenchmark\tbenchmark.v0\tnormalized.csv\tFAIL\t0.0\t1.0\t1\t0\tLOW\t-\n"
+    );
     Ok(())
 }

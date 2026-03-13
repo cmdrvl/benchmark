@@ -32,6 +32,11 @@ cargo run -- \
   --assertions tests/fixtures/assertions/smoke/bench_i001_gold.jsonl \
   --key comp_id \
   --json
+cargo run -- \
+  tests/fixtures/candidates/smoke/bench_mixed.csv \
+  --assertions tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl \
+  --key comp_id \
+  --render summary
 cargo test
 ```
 
@@ -215,6 +220,26 @@ coverage: 0.995
 FAIL comp_3 u8:adj_location expected=5.0% actual=5.5% compare_as=percent tolerance=0.01
 SKIP comp_7 u8:cap_rate reason=SKIP_ENTITY
 ```
+
+Operator summary surfaces:
+
+```text
+tool=benchmark version=benchmark.v0 candidate=normalized.csv outcome=FAIL accuracy=0.995 coverage=0.995 failed=1 skipped=1 quality_band=LOW refusal_code=-
+```
+
+```tsv
+tool	version	candidate	outcome	accuracy	coverage	failed	skipped	quality_band	refusal_code
+benchmark	benchmark.v0	normalized.csv	FAIL	0.995	0.995	1	1	LOW	-
+```
+
+Use them via:
+
+```bash
+benchmark normalized.csv --assertions gold_set.jsonl --key comp_id --render summary
+benchmark normalized.csv --assertions gold_set.jsonl --key comp_id --render summary-tsv
+```
+
+Successful `PASS` and `FAIL` scoring runs are expected to keep `stderr` empty. Native dependency noise is suppressed on those paths so stdout remains the complete operator artifact; only refusal-path or unexpected top-level diagnostics should surface outside the report.
 
 ---
 

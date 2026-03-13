@@ -2,7 +2,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use thiserror::Error;
 
-use crate::{REPORT_VERSION, TOOL, cli::BenchmarkCommand};
+use crate::{REPORT_VERSION, TOOL, cli::BenchmarkCommand, render::RenderMode};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RefusalEnvelope {
@@ -51,24 +51,58 @@ impl RefusalEnvelope {
         }
     }
 
-    pub fn render(&self, json_mode: bool) -> Result<String, serde_json::Error> {
-        if json_mode {
-            let mut rendered = serde_json::to_string_pretty(self)?;
-            rendered.push('\n');
-            return Ok(rendered);
+    pub fn render(&self, render_mode: RenderMode) -> Result<String, serde_json::Error> {
+        match render_mode {
+            RenderMode::Json => {
+                let mut rendered = serde_json::to_string_pretty(self)?;
+                rendered.push('\n');
+                Ok(rendered)
+            }
+            RenderMode::Human => {
+                let mut rendered = format!(
+                    "REFUSAL [{}]\n{}\n",
+                    self.refusal.code, self.refusal.message
+                );
+                if !self.refusal.detail.is_null() && self.refusal.detail != json!({}) {
+                    rendered.push_str(&format!("detail: {}\n", self.refusal.detail));
+                }
+                if let Some(next_command) = &self.refusal.next_command {
+                    rendered.push_str(&format!("next: {next_command}\n"));
+                }
+                Ok(rendered)
+            }
+            RenderMode::Summary => Ok(format!(
+                "tool={} version={} candidate={} outcome={} accuracy={} coverage={} failed={} skipped={} quality_band={} refusal_code={}\n",
+                self.tool,
+                self.version,
+                self.summary_candidate_label(),
+                self.outcome,
+                "-",
+                "-",
+                "-",
+                "-",
+                "-",
+                self.refusal.code
+            )),
+            RenderMode::SummaryTsv => Ok(format!(
+                "tool\tversion\tcandidate\toutcome\taccuracy\tcoverage\tfailed\tskipped\tquality_band\trefusal_code\n{}\t{}\t{}\t{}\t-\t-\t-\t-\t-\t{}\n",
+                sanitize_tsv(self.tool.clone()),
+                sanitize_tsv(self.version.clone()),
+                sanitize_tsv(self.summary_candidate_label()),
+                self.outcome,
+                self.refusal.code
+            )),
         }
+    }
 
-        let mut rendered = format!(
-            "REFUSAL [{}]\n{}\n",
-            self.refusal.code, self.refusal.message
-        );
-        if !self.refusal.detail.is_null() && self.refusal.detail != json!({}) {
-            rendered.push_str(&format!("detail: {}\n", self.refusal.detail));
-        }
-        if let Some(next_command) = &self.refusal.next_command {
-            rendered.push_str(&format!("next: {next_command}\n"));
-        }
-        Ok(rendered)
+    fn summary_candidate_label(&self) -> String {
+        self.refusal
+            .detail
+            .get("candidate")
+            .and_then(Value::as_str)
+            .or_else(|| self.refusal.detail.get("path").and_then(Value::as_str))
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| "-".to_owned())
     }
 }
 
@@ -88,4 +122,8 @@ pub fn scaffold_only(command: &BenchmarkCommand) -> RefusalEnvelope {
         }),
         Some("br ready".to_owned()),
     )
+}
+
+fn sanitize_tsv(value: String) -> String {
+    value.replace('\t', " ").replace(['\n', '\r'], " ")
 }

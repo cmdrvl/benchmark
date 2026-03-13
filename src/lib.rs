@@ -57,11 +57,11 @@ pub fn execute(cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
     match execute_command(&command) {
         Ok(report) => Ok(Execution {
             outcome: Outcome::from(report.outcome),
-            stdout: render::render_report(&report, command.json)?,
+            stdout: render::render_report(&report, command.render_mode)?,
         }),
         Err(refusal) => Ok(Execution {
             outcome: Outcome::Refusal,
-            stdout: render::render_refusal(&refusal, command.json)?,
+            stdout: render::render_refusal(&refusal, command.render_mode)?,
         }),
     }
 }
@@ -298,7 +298,7 @@ fn paths_json(paths: &[std::path::PathBuf]) -> Value {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::cli::Cli;
+    use crate::{cli::Cli, render::RenderMode};
     use serde_json::json;
 
     use super::{Outcome, execute};
@@ -315,7 +315,7 @@ mod tests {
             assertions: PathBuf::from("gold.jsonl"),
             key: "comp_id".to_owned(),
             lockfiles: vec![PathBuf::from("candidate.lock.json")],
-            json: false,
+            render_mode: RenderMode::Human,
         };
 
         assert_eq!(
@@ -332,6 +332,7 @@ mod tests {
             key: "comp_id".to_owned(),
             lock: Vec::new(),
             json: true,
+            render: None,
         };
 
         let execution = execute(cli)?;
@@ -351,7 +352,7 @@ mod tests {
             assertions: PathBuf::from("gold.jsonl"),
             key: "comp_id".to_owned(),
             lockfiles: Vec::new(),
-            json: true,
+            render_mode: RenderMode::Json,
         };
 
         let refusal = super::refusal_from_parts(
@@ -361,7 +362,7 @@ mod tests {
             json!({ "path": "candidate.csv" }),
         );
 
-        let rendered = refusal.render(true)?;
+        let rendered = refusal.render(RenderMode::Json)?;
         let envelope: serde_json::Value = serde_json::from_str(&rendered)?;
         assert_eq!(envelope["version"], "benchmark.v0");
         assert_eq!(envelope["outcome"], "REFUSAL");

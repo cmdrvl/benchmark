@@ -116,7 +116,7 @@ The current implementation structure is:
 | `src/engine.rs` | assertion evaluation and outcome generation |
 | `src/lock_check.rs` | optional lock membership and hash verification |
 | `src/report.rs` | internal report model and summary math |
-| `src/render.rs` | human and JSON report rendering |
+| `src/render.rs` | human, JSON, summary, and TSV report rendering |
 | `src/refusal.rs` | refusal taxonomy and refusal envelopes |
 | `tests/fixtures/` | shared candidate, assertion, lock, and perf fixtures |
 | `tests/cli.rs` | CLI mode and exit-code tests |
@@ -146,6 +146,8 @@ Target output modes:
 
 - default stdout: compact human-readable report
 - `--json`: machine-readable full report
+- `--render summary`: one-line operator summary derived from the existing report or refusal
+- `--render summary-tsv`: stable TSV header + row for shell pipelines
 - stderr: process diagnostics only
 
 Refusal envelopes are part of the contract. Do not replace them with ad-hoc text.
@@ -156,6 +158,7 @@ Machine-report specifics that matter for downstream compatibility:
 - scoring reports emit derived `policy_signals.quality_band`
 - refusal envelopes emit stable top-level `policy_signals: {}`
 - `quality_band` is derived from the raw summary; it is not a separate decision engine
+- summary modes must be pure renderings of the report or refusal envelope, never recomputed scoring logic
 
 ---
 

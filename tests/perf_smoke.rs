@@ -7,8 +7,14 @@ use std::{
 };
 
 use benchmark::{
-    Outcome, assertions::load_assertions, candidate::LoadedCandidate, cli::Cli,
-    engine::score_candidate, execute, key_check::validate_key, render::render_report,
+    Outcome,
+    assertions::load_assertions,
+    candidate::LoadedCandidate,
+    cli::Cli,
+    engine::score_candidate,
+    execute,
+    key_check::validate_key,
+    render::{RenderMode, render_report},
     report::ReportOutcome,
 };
 use serde_json::Value;
@@ -99,7 +105,7 @@ fn BENCH_I901_perf_smoke_integrated_path_captures_phase_timings()
     let scoring = scoring_start.elapsed();
 
     let render_start = Instant::now();
-    let rendered = render_report(&report, true)?;
+    let rendered = render_report(&report, RenderMode::Json)?;
     let rendering = render_start.elapsed();
 
     let execute_start = Instant::now();
@@ -109,6 +115,7 @@ fn BENCH_I901_perf_smoke_integrated_path_captures_phase_timings()
         key: "comp_id".to_owned(),
         lock: Vec::new(),
         json: true,
+        render: None,
     })?;
     let execute_total = execute_start.elapsed();
 
