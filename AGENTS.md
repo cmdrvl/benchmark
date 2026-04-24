@@ -506,7 +506,6 @@ Release discipline in this repo now follows the stronger spine pattern:
 - `./scripts/ubs_gate.sh` in CI
 - deterministic artifacts
 - `main` as primary branch
-- sync `master` for legacy compatibility
 
 ---
 
