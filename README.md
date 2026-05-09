@@ -11,7 +11,7 @@ Current status:
 - repository status: implemented Rust crate with validated benchmark v0 command path
 - source of truth: [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md)
 - current repo contents: plan + Beads execution graph + working Rust crate + fixture and perf corpus
-- release status: `v0.2.0` is published and available via the `cmdrvl-benchmark` Homebrew tap formula
+- release status: `v0.2.1` is published and available via the `cmdrvl-benchmark` Homebrew tap formula
 
 The examples below describe the implemented `v0` contract. The crate is runnable locally, CI and release automation now live in-repo, and the current release binary already follows the same contract.
 

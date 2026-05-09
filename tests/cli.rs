@@ -257,8 +257,10 @@ fn bench_i_refusal_run_still_surfaces_refusal_stdout() -> Result<(), Box<dyn std
 
 #[test]
 fn bench_u_execute_returns_summary_fail_with_exit_1() -> Result<(), Box<dyn std::error::Error>> {
+    let candidate = fixture("tests/fixtures/candidates/smoke/bench_mixed.csv");
+    let expected_candidate = candidate.display().to_string();
     let execution = execute(Cli {
-        candidate: Some(fixture("tests/fixtures/candidates/smoke/bench_mixed.csv")),
+        candidate: Some(candidate),
         assertions: Some(fixture(
             "tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl",
         )),
@@ -273,7 +275,10 @@ fn bench_u_execute_returns_summary_fail_with_exit_1() -> Result<(), Box<dyn std:
     assert_eq!(execution.exit_code(), 1);
     assert_eq!(
         execution.stdout,
-        "tool=benchmark version=benchmark.v0 candidate=/Users/zac/Source/cmdrvl/benchmark/tests/fixtures/candidates/smoke/bench_mixed.csv outcome=FAIL accuracy=0.8 coverage=0.714 failed=1 skipped=2 quality_band=LOW refusal_code=-\n"
+        format!(
+            "tool=benchmark version=benchmark.v0 candidate={} outcome=FAIL accuracy=0.8 coverage=0.714 failed=1 skipped=2 quality_band=LOW refusal_code=-\n",
+            expected_candidate
+        )
     );
 
     Ok(())
