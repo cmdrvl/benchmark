@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::render::RenderMode;
 
@@ -14,24 +14,26 @@ pub enum SummaryRenderMode {
 #[command(
     name = "benchmark",
     version,
-    about = "Score a row-oriented candidate against human-validated assertions"
+    about = "Score a row-oriented candidate against human-validated assertions",
+    subcommand_precedence_over_arg = true,
+    subcommand_negates_reqs = true
 )]
 pub struct Cli {
     #[arg(
         value_name = "CANDIDATE",
         help = "File to score (CSV, JSON, JSONL, or Parquet)"
     )]
-    pub candidate: PathBuf,
+    pub candidate: Option<PathBuf>,
 
     #[arg(long, value_name = "FILE", help = "Assertion file (JSONL)")]
-    pub assertions: PathBuf,
+    pub assertions: Option<PathBuf>,
 
     #[arg(
         long,
         value_name = "COLUMN",
         help = "Key column for entity lookup in candidate"
     )]
-    pub key: String,
+    pub key: Option<String>,
 
     #[arg(
         long,
@@ -40,11 +42,36 @@ pub struct Cli {
     )]
     pub lock: Vec<PathBuf>,
 
-    #[arg(long, help = "Emit machine-readable JSON output")]
+    #[arg(long, global = true, help = "Emit machine-readable JSON output")]
     pub json: bool,
 
     #[arg(long, value_enum, conflicts_with = "json")]
     pub render: Option<SummaryRenderMode>,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum Command {
+    Doctor(DoctorArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DoctorArgs {
+    #[arg(long = "robot-triage")]
+    pub robot_triage: bool,
+
+    #[command(subcommand)]
+    pub command: Option<DoctorCommand>,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum DoctorCommand {
+    Health,
+    Capabilities,
+    #[command(name = "robot-docs")]
+    RobotDocs,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,12 +83,16 @@ pub struct BenchmarkCommand {
     pub render_mode: RenderMode,
 }
 
-impl From<Cli> for BenchmarkCommand {
-    fn from(cli: Cli) -> Self {
-        Self {
-            candidate: cli.candidate,
-            assertions: cli.assertions,
-            key: cli.key,
+impl BenchmarkCommand {
+    pub fn try_from_cli(cli: Cli) -> Result<Self, &'static str> {
+        Ok(Self {
+            candidate: cli
+                .candidate
+                .ok_or("missing required argument <CANDIDATE>")?,
+            assertions: cli
+                .assertions
+                .ok_or("missing required argument --assertions <FILE>")?,
+            key: cli.key.ok_or("missing required argument --key <COLUMN>")?,
             lockfiles: cli.lock,
             render_mode: match (cli.json, cli.render) {
                 (true, _) => RenderMode::Json,
@@ -69,6 +100,6 @@ impl From<Cli> for BenchmarkCommand {
                 (false, Some(SummaryRenderMode::SummaryTsv)) => RenderMode::SummaryTsv,
                 (false, None) => RenderMode::Human,
             },
-        }
+        })
     }
 }

@@ -22,12 +22,13 @@ fn fixture(path: &str) -> PathBuf {
 
 fn fixture_cli(candidate: &str, assertions: &str, lockfiles: &[&str], json: bool) -> Cli {
     Cli {
-        candidate: fixture(candidate),
-        assertions: fixture(assertions),
-        key: "comp_id".to_owned(),
+        candidate: Some(fixture(candidate)),
+        assertions: Some(fixture(assertions)),
+        key: Some("comp_id".to_owned()),
         lock: lockfiles.iter().map(|path| fixture(path)).collect(),
         json,
         render: None,
+        command: None,
     }
 }
 
@@ -140,7 +141,7 @@ fn bench_u_help_mentions_expected_flags() {
     let help = command.render_long_help().to_string();
 
     assert!(help.contains("Usage: benchmark"));
-    assert!(help.contains("<CANDIDATE>"));
+    assert!(help.contains("CANDIDATE"));
     assert!(help.contains("--assertions"));
     assert!(help.contains("--key"));
     assert!(help.contains("--lock"));
@@ -257,12 +258,15 @@ fn bench_i_refusal_run_still_surfaces_refusal_stdout() -> Result<(), Box<dyn std
 #[test]
 fn bench_u_execute_returns_summary_fail_with_exit_1() -> Result<(), Box<dyn std::error::Error>> {
     let execution = execute(Cli {
-        candidate: fixture("tests/fixtures/candidates/smoke/bench_mixed.csv"),
-        assertions: fixture("tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl"),
-        key: "comp_id".to_owned(),
+        candidate: Some(fixture("tests/fixtures/candidates/smoke/bench_mixed.csv")),
+        assertions: Some(fixture(
+            "tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl",
+        )),
+        key: Some("comp_id".to_owned()),
         lock: Vec::new(),
         json: false,
         render: Some(benchmark::cli::SummaryRenderMode::Summary),
+        command: None,
     })?;
 
     assert_eq!(execution.outcome, Outcome::Fail);

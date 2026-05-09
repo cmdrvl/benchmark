@@ -7,6 +7,7 @@ pub mod assertions;
 pub mod candidate;
 pub mod cli;
 pub mod compare;
+pub mod doctor;
 pub mod engine;
 pub mod key_check;
 pub mod lock_check;
@@ -16,7 +17,7 @@ pub mod report;
 
 use assertions::AssertionError;
 use candidate::{CandidateError, LoadedCandidate};
-use cli::{BenchmarkCommand, Cli};
+use cli::{BenchmarkCommand, Cli, Command};
 use engine::EngineError;
 use key_check::KeyCheckError;
 use lock_check::{LockCheckError, verify_candidate};
@@ -47,13 +48,36 @@ pub struct Execution {
 }
 
 impl Execution {
+    pub fn new(outcome: Outcome, stdout: impl Into<String>) -> Self {
+        Self {
+            outcome,
+            stdout: stdout.into(),
+        }
+    }
+
     pub const fn exit_code(&self) -> u8 {
         self.outcome.exit_code()
     }
 }
 
-pub fn execute(cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
-    let command = BenchmarkCommand::from(cli);
+pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
+    if let Some(Command::Doctor(doctor)) = cli.command.take() {
+        if cli.candidate.is_some()
+            || cli.assertions.is_some()
+            || cli.key.is_some()
+            || !cli.lock.is_empty()
+            || cli.render.is_some()
+        {
+            return Err(
+                "`benchmark doctor` does not accept candidate, assertions, key, lock, or render arguments"
+                    .into(),
+            );
+        }
+
+        return Ok(doctor::execute(doctor, cli.json));
+    }
+
+    let command = BenchmarkCommand::try_from_cli(cli)?;
     match execute_command(&command) {
         Ok(report) => Ok(Execution {
             outcome: Outcome::from(report.outcome),
@@ -327,12 +351,13 @@ mod tests {
     #[test]
     fn execute_maps_missing_candidate_to_refusal() -> Result<(), Box<dyn std::error::Error>> {
         let cli = Cli {
-            candidate: "candidate.csv".into(),
-            assertions: "gold.jsonl".into(),
-            key: "comp_id".to_owned(),
+            candidate: Some("candidate.csv".into()),
+            assertions: Some("gold.jsonl".into()),
+            key: Some("comp_id".to_owned()),
             lock: Vec::new(),
             json: true,
             render: None,
+            command: None,
         };
 
         let execution = execute(cli)?;

@@ -2,6 +2,7 @@ target/
 target_codex_*/
 .beads/.br_history/
 .ntm/
+.doctor/
 
 # bv (beads viewer) local config and caches
 .bv/

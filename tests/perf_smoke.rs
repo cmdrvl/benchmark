@@ -110,12 +110,13 @@ fn BENCH_I901_perf_smoke_integrated_path_captures_phase_timings()
 
     let execute_start = Instant::now();
     let execution = execute(Cli {
-        candidate: fixture.candidate.clone(),
-        assertions: fixture.assertions.clone(),
-        key: "comp_id".to_owned(),
+        candidate: Some(fixture.candidate.clone()),
+        assertions: Some(fixture.assertions.clone()),
+        key: Some("comp_id".to_owned()),
         lock: Vec::new(),
         json: true,
         render: None,
+        command: None,
     })?;
     let execute_total = execute_start.elapsed();
 
