@@ -1,5 +1,9 @@
 # benchmark
 
+![benchmark: gold-set scoring for extractions. A painterly dashboard with two parallel columns at the top, GOLD (human-validated assertions) on the left and CANDIDATE (extracted) on the right, with three verdict states applied per row: MATCH, WRONG_VALUE (with expected vs got values inline), or MISSING. An aggregate panel scores 12 expected, 9 matched, 2 wrong_value, 1 missing, with precision-by-content and recall percentages. A segmented bar visualizes the misses split between wrong_value and missing. The distinction matters: wrong_value is an extraction quality problem; missing is a coverage problem. A teacher's grading rubric on the desk has been stamped GRADED.](docs/images/benchmark.webp)
+
+> *Did the extraction produce the facts we expected? If not, are the misses wrong or missing?*
+
 **Gold-set scoring for extraction pipelines.**
 
 `benchmark` is the epistemic spine tool for checking a row-oriented candidate dataset against a human-validated assertion set. It answers a narrow but important question:
@@ -521,3 +525,7 @@ If the README and the plan ever disagree, follow:
 1. [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md)
 2. [AGENTS.md](./AGENTS.md)
 3. this README
+
+---
+
+*`benchmark` is part of the open-source toolchain from the [CMD+RVL](https://cmdrvl.com) lineage and AI enablement practice. MIT-licensed. Contributions welcome from any practice or stack.*
