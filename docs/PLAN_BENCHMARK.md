@@ -90,6 +90,7 @@ Options:
 - default stdout: human-readable summary
 - `--json`: machine-readable full report
 - stderr: process diagnostics only, never evidence
+- no durable home config, state, or cache paths; all inputs are explicit CLI paths, and durable outputs require operator redirection or another explicit surrounding workflow path
 
 ## Candidate contract
 

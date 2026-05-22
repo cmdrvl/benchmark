@@ -57,6 +57,12 @@ benchmark doctor --robot-triage
 
 Doctor mode does not read candidates, assertions, lockfiles, fixture paths, stdin, or DuckDB state. It does not score assertions, verify locks, mint gold truth, write artifacts, or provide a `--fix` surface.
 
+## Configuration footprint
+
+`benchmark` has no durable home config, state, or cache surface. Candidates, assertions, and lockfiles are read only from explicit CLI paths, and score reports render to stdout unless the operator redirects them or supplies another explicit output path in a surrounding workflow.
+
+The doctor JSON surfaces this contract under `config_footprint`, including the canonical CMD+RVL root (`~/.cmdrvl`) and the shared migration/deprecation ledgers. `legacy_migration_required` is `false` because the current operator surface has no legacy implicit paths to migrate.
+
 ---
 
 ## Why benchmark exists

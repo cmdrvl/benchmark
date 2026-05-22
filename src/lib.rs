@@ -11,6 +11,7 @@ pub mod doctor;
 pub mod engine;
 pub mod key_check;
 pub mod lock_check;
+pub mod paths;
 pub mod refusal;
 pub mod render;
 pub mod report;

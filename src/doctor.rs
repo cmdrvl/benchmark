@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use crate::{
     Execution, Outcome, REPORT_VERSION, TOOL,
     cli::{DoctorArgs, DoctorCommand},
+    paths,
 };
 
 const CONTRACT: &str = "cmdrvl.read_only_doctor.v1";
@@ -69,6 +70,7 @@ fn health_payload() -> Value {
         },
         "checks": checks,
         "observed_paths": observed_paths(),
+        "config_footprint": paths::config_footprint(),
         "side_effects": side_effects(),
         "fixers": []
     })
@@ -113,6 +115,7 @@ fn capabilities_payload() -> Value {
             "1": "reserved for benchmark scoring FAIL outcomes, not used by read-only doctor",
             "2": "CLI usage error, benchmark refusal, or unexpected top-level error"
         },
+        "config_footprint": paths::config_footprint(),
         "side_effects": side_effects(),
         "fixers": []
     })
@@ -136,6 +139,7 @@ fn triage_payload() -> Value {
         "score": if ok { 100 } else { 0 },
         "read_only": true,
         "checks": checks,
+        "config_footprint": paths::config_footprint(),
         "side_effects": side_effects(),
         "fixers": [],
         "recommended_next_steps": [
@@ -198,6 +202,11 @@ fn health_checks() -> Vec<Value> {
             true,
             "doctor performs no DNS, HTTP, TLS, or other network probes",
         ),
+        check(
+            "config_footprint_declared",
+            true,
+            "benchmark has no implicit managed config, state, or cache paths",
+        ),
     ]
 }
 
@@ -216,12 +225,19 @@ fn observed_paths() -> Value {
         "report_contract": "compiled:benchmark.v0",
         "candidate": null,
         "assertions": null,
-        "lockfiles": []
+        "lockfiles": [],
+        "managed_config_paths": [],
+        "managed_state_paths": [],
+        "managed_cache_paths": []
     })
 }
 
 fn side_effects() -> Value {
     json!({
+        "reads_config_files": false,
+        "writes_config_files": false,
+        "writes_migration_logs": false,
+        "writes_deprecation_notices": false,
         "reads_stdin": false,
         "reads_candidate_files": false,
         "reads_assertion_files": false,
@@ -270,6 +286,7 @@ read_only:\n\
   - does not read stdin, candidates, assertions, lockfiles, or fixture paths\n\
   - does not detect formats, open DuckDB, validate keys, verify locks, compare values, score assertions, or mint gold truth\n\
   - does not create directories, write doctor artifacts, or use the network\n\
+  - no implicit ~/.cmdrvl config, state, or cache paths are read or written\n\
 fix_mode:\n\
   - no --fix surface is implemented in this release\n\
 next_steps:\n\
