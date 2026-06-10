@@ -3,11 +3,15 @@
 use std::{io::Read, process::ExitCode};
 
 use benchmark::{Outcome, cli::Cli};
-use clap::Parser;
+use clap::{Parser, error::ErrorKind};
 use gag::BufferRedirect;
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let raw_args = std::env::args().collect::<Vec<_>>();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => return handle_cli_error(error, &raw_args),
+    };
     let stderr_capture = StderrCapture::start();
     let result = benchmark::execute(cli);
     let captured_stderr = stderr_capture.finish();
@@ -23,9 +27,33 @@ fn main() -> ExitCode {
         Err(error) => {
             replay_stderr(&captured_stderr);
             eprintln!("{error}");
+            eprintln!("next: benchmark capabilities --json");
+            eprintln!("help: benchmark robot-docs guide");
             ExitCode::from(2)
         }
     }
+}
+
+fn handle_cli_error(error: clap::Error, raw_args: &[String]) -> ExitCode {
+    match error.kind() {
+        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
+            print!("{error}");
+            ExitCode::SUCCESS
+        }
+        _ => {
+            eprint!("{error}");
+            if raw_args.iter().any(|arg| is_json_typo(arg)) {
+                eprintln!("hint: did you mean `--json`?");
+            }
+            eprintln!("next: benchmark capabilities --json");
+            eprintln!("help: benchmark robot-docs guide");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn is_json_typo(arg: &str) -> bool {
+    matches!(arg, "--jsno" | "--jsson" | "--jason" | "--josn")
 }
 
 struct StderrCapture {

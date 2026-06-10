@@ -104,6 +104,18 @@ fn doctor_capabilities_json_has_no_fixers_or_side_effects() -> Result<(), Box<dy
     );
     assert_all_side_effects_false(side_effects(&payload)?)?;
     assert!(payload["fixers"].as_array().is_some_and(Vec::is_empty));
+    assert_eq!(
+        payload["agent_entrypoints"][0]["usage"],
+        "benchmark --robot-triage"
+    );
+    assert_eq!(
+        payload["agent_entrypoints"][1]["usage"],
+        "benchmark capabilities --json"
+    );
+    assert_eq!(
+        payload["agent_entrypoints"][2]["usage"],
+        "benchmark robot-docs guide"
+    );
     assert!(
         payload["commands"]
             .as_array()
@@ -145,6 +157,9 @@ fn doctor_robot_docs_is_plain_text_and_read_only() -> Result<(), Box<dyn std::er
     assert!(output.stderr.is_empty());
     let stdout = String::from_utf8(output.stdout)?;
     assert!(stdout.contains("cmdrvl.read_only_doctor.v1"));
+    assert!(stdout.contains("benchmark --robot-triage"));
+    assert!(stdout.contains("benchmark capabilities --json"));
+    assert!(stdout.contains("benchmark robot-docs guide"));
     assert!(stdout.contains("benchmark doctor health --json"));
     assert!(stdout.contains("no implicit ~/.cmdrvl config"));
     assert!(stdout.contains("no --fix surface"));

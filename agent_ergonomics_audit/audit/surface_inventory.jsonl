@@ -1,0 +1,15 @@
+{"id":"S-001","kind":"bare_invocation","surface":"benchmark","pre":"usage error via execute path","post":"long help with agent entrypoints","dimension":"first_try_success"}
+{"id":"S-002","kind":"global_flag","surface":"benchmark --json","pre":"required candidate/assertions/key","post":"capabilities JSON when no candidate is supplied","dimension":"output_parseability"}
+{"id":"S-003","kind":"global_flag","surface":"benchmark --robot-triage","pre":"unknown flag","post":"read-only triage JSON","dimension":"mega_command"}
+{"id":"S-004","kind":"subcommand","surface":"benchmark capabilities --json","pre":"missing top-level alias","post":"capabilities JSON alias","dimension":"self_documentation"}
+{"id":"S-005","kind":"subcommand","surface":"benchmark robot-docs guide","pre":"missing top-level alias","post":"agent guide alias","dimension":"self_documentation"}
+{"id":"S-006","kind":"error","surface":"benchmark --jsno","pre":"generic clap unknown argument","post":"did-you-mean --json plus next/help breadcrumbs","dimension":"error_pedagogy"}
+{"id":"S-007","kind":"nested_doctor","surface":"benchmark doctor capabilities --json","pre":"nested-only metadata","post":"enriched with top-level entrypoints, scoring commands, refusal codes","dimension":"contract_discoverability"}
+{"id":"S-008","kind":"nested_doctor","surface":"benchmark doctor robot-docs","pre":"nested-only guide","post":"guide teaches top-level aliases and scoring commands","dimension":"self_documentation"}
+{"id":"S-009","kind":"release_workflow","surface":".github/workflows/release.yml formula generator","pre":"generated redundant version line and extra blank before platform blocks","post":"strict-audit-friendly formula template","dimension":"release_ergo"}
+{"id":"S-010","kind":"docs","surface":"README.md AGENTS.md docs/PLAN_BENCHMARK.md","pre":"stale release and nested-only automation docs","post":"Homebrew install plus top-level agent entrypoints","dimension":"documentation_fidelity"}
+{"id":"S-011","kind":"scoring","surface":"benchmark <candidate> --assertions <file> --key <column> --json","pre":"implemented","post":"unchanged","dimension":"scope_preservation"}
+{"id":"S-012","kind":"scoring","surface":"benchmark <candidate> --assertions <file> --key <column> --render summary","pre":"implemented","post":"unchanged","dimension":"scope_preservation"}
+{"id":"S-013","kind":"refusal","surface":"E_BAD_ASSERTIONS","pre":"structured refusal with next command","post":"unchanged","dimension":"scope_preservation"}
+{"id":"S-014","kind":"refusal","surface":"E_KEY_NOT_FOUND","pre":"structured refusal with next command","post":"unchanged","dimension":"scope_preservation"}
+{"id":"S-015","kind":"refusal","surface":"E_INPUT_DRIFT","pre":"structured refusal with next command","post":"unchanged","dimension":"scope_preservation"}

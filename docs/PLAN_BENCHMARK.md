@@ -77,6 +77,12 @@ Options:
   --key <COLUMN>         Key column for entity lookup in candidate
   --lock <LOCKFILE>      Verify candidate is a member of these lockfiles (repeatable)
   --json                 JSON output
+  --robot-triage         Read-only automation triage JSON
+
+Agent entrypoints:
+  benchmark --robot-triage
+  benchmark capabilities --json
+  benchmark robot-docs guide
 ```
 
 ### Exit codes
@@ -89,6 +95,8 @@ Options:
 
 - default stdout: human-readable summary
 - `--json`: machine-readable full report
+- `benchmark --json` with no candidate returns the machine-readable capabilities contract
+- `benchmark capabilities --json` and `benchmark robot-docs guide` are read-only top-level aliases for automation
 - stderr: process diagnostics only, never evidence
 - no durable home config, state, or cache paths; all inputs are explicit CLI paths, and durable outputs require operator redirection or another explicit surrounding workflow path
 

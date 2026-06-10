@@ -1,0 +1,6 @@
+{"recommendation_id":"R-001","files":["src/cli.rs","src/lib.rs","tests/cli.rs"],"change":"Bare benchmark now returns long help with agent entrypoints and exit 0."}
+{"recommendation_id":"R-002","files":["src/cli.rs","src/lib.rs","src/doctor.rs","tests/cli.rs"],"change":"Added benchmark --robot-triage top-level alias for read-only triage JSON."}
+{"recommendation_id":"R-003","files":["src/cli.rs","src/lib.rs","src/doctor.rs","tests/cli.rs","tests/doctor.rs"],"change":"Added benchmark capabilities --json and benchmark --json discovery paths."}
+{"recommendation_id":"R-004","files":["src/cli.rs","src/lib.rs","src/doctor.rs","tests/cli.rs","tests/doctor.rs"],"change":"Added benchmark robot-docs guide top-level alias and enriched guide text."}
+{"recommendation_id":"R-005","files":["src/main.rs","tests/cli.rs"],"change":"Added custom CLI parse error breadcrumbs and --json typo hinting."}
+{"recommendation_id":"R-006","files":[".github/workflows/release.yml"],"change":"Fixed Homebrew formula generation template for strict audit."}

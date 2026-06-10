@@ -28,6 +28,7 @@ fn fixture_cli(candidate: &str, assertions: &str, lockfiles: &[&str], json: bool
         lock: lockfiles.iter().map(|path| fixture(path)).collect(),
         json,
         render: None,
+        robot_triage: false,
         command: None,
     }
 }
@@ -147,12 +148,95 @@ fn bench_u_help_mentions_expected_flags() {
     assert!(help.contains("--lock"));
     assert!(help.contains("--json"));
     assert!(help.contains("--render"));
+    assert!(help.contains("Agent entrypoints"));
+    assert!(help.contains("benchmark --robot-triage"));
+    assert!(help.contains("benchmark capabilities --json"));
+    assert!(help.contains("benchmark robot-docs guide"));
 }
 
 #[test]
 fn bench_u_version_is_wired() {
     let version = Cli::command().render_version().to_string();
     assert!(version.contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn bench_u_bare_invocation_prints_agent_entrypoints() -> Result<(), Box<dyn std::error::Error>> {
+    let execution = execute(Cli::parse_from(["benchmark"]))?;
+
+    assert_eq!(execution.outcome, Outcome::Pass);
+    assert_eq!(execution.exit_code(), 0);
+    assert!(execution.stdout.contains("Agent entrypoints"));
+    assert!(execution.stdout.contains("benchmark --robot-triage"));
+    assert!(execution.stdout.contains("benchmark capabilities --json"));
+    assert!(execution.stdout.contains("benchmark robot-docs guide"));
+    Ok(())
+}
+
+#[test]
+fn bench_u_json_only_returns_capabilities_contract() -> Result<(), Box<dyn std::error::Error>> {
+    let execution = execute(Cli::parse_from(["benchmark", "--json"]))?;
+
+    assert_eq!(execution.outcome, Outcome::Pass);
+    assert_eq!(execution.exit_code(), 0);
+    let payload: serde_json::Value = serde_json::from_str(&execution.stdout)?;
+    assert_eq!(payload["schema"], "benchmark.doctor.capabilities.v1");
+    assert_eq!(
+        payload["agent_entrypoints"][0]["usage"],
+        "benchmark --robot-triage"
+    );
+    Ok(())
+}
+
+#[test]
+fn bench_u_top_level_robot_triage_returns_json() -> Result<(), Box<dyn std::error::Error>> {
+    let execution = execute(Cli::parse_from(["benchmark", "--robot-triage"]))?;
+
+    assert_eq!(execution.outcome, Outcome::Pass);
+    assert_eq!(execution.exit_code(), 0);
+    let payload: serde_json::Value = serde_json::from_str(&execution.stdout)?;
+    assert_eq!(payload["schema"], "benchmark.doctor.triage.v1");
+    assert_eq!(payload["ok"], true);
+    assert_eq!(payload["read_only"], true);
+    Ok(())
+}
+
+#[test]
+fn bench_u_top_level_capabilities_and_robot_docs_aliases_work()
+-> Result<(), Box<dyn std::error::Error>> {
+    let capabilities = execute(Cli::parse_from(["benchmark", "capabilities", "--json"]))?;
+    assert_eq!(capabilities.exit_code(), 0);
+    let payload: serde_json::Value = serde_json::from_str(&capabilities.stdout)?;
+    assert_eq!(payload["schema"], "benchmark.doctor.capabilities.v1");
+    assert_eq!(
+        payload["commands"][0]["usage"],
+        "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json"
+    );
+
+    let docs = execute(Cli::parse_from(["benchmark", "robot-docs", "guide"]))?;
+    assert_eq!(docs.exit_code(), 0);
+    assert!(docs.stdout.contains("benchmark robot-docs guide"));
+    assert!(docs.stdout.contains("benchmark capabilities --json"));
+    assert!(
+        docs.stdout
+            .contains("benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json")
+    );
+    Ok(())
+}
+
+#[test]
+fn bench_i_json_typo_error_names_corrected_command() -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new(env!("CARGO_BIN_EXE_benchmark"))
+        .arg("--jsno")
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("hint: did you mean `--json`?"));
+    assert!(stderr.contains("next: benchmark capabilities --json"));
+    assert!(stderr.contains("help: benchmark robot-docs guide"));
+    Ok(())
 }
 
 #[test]
@@ -268,6 +352,7 @@ fn bench_u_execute_returns_summary_fail_with_exit_1() -> Result<(), Box<dyn std:
         lock: Vec::new(),
         json: false,
         render: Some(benchmark::cli::SummaryRenderMode::Summary),
+        robot_triage: false,
         command: None,
     })?;
 

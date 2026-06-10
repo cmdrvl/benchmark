@@ -15,7 +15,7 @@ Current status:
 - repository status: implemented Rust crate with validated benchmark v0 command path
 - source of truth: [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md)
 - current repo contents: plan + Beads execution graph + working Rust crate + fixture and perf corpus
-- release status: `v0.2.1` is published and available via the `cmdrvl-benchmark` Homebrew tap formula
+- release status: `v0.3.0` is published and available via the `cmdrvl-benchmark` Homebrew tap formula
 
 The examples below describe the implemented `v0` contract. The crate is runnable locally, CI and release automation now live in-repo, and the current release binary already follows the same contract.
 
@@ -26,6 +26,8 @@ The examples below describe the implemented `v0` contract. The crate is runnable
 The current quickstart is for contributors and local operators:
 
 ```bash
+brew install cmdrvl/tap/cmdrvl-benchmark
+
 cd benchmark
 cargo run -- --help
 sed -n '1,260p' docs/PLAN_BENCHMARK.md
@@ -49,6 +51,9 @@ If you are here to build or verify the tool, start with the plan, the Beads grap
 Read-only doctor mode is available for automation and agent triage:
 
 ```bash
+benchmark --robot-triage
+benchmark capabilities --json
+benchmark robot-docs guide
 benchmark doctor health --json
 benchmark doctor capabilities --json
 benchmark doctor robot-docs
@@ -452,7 +457,7 @@ Current implementation status:
 - plan quality: implementation-grade and now reflected in code
 - README and AGENTS: now explicit and repo-specific
 - code: implemented crate with CLI orchestration, scoring, rendering, lock checks, and perf smoke coverage
-- release surface: CI workflow, release workflow, and Homebrew-tap update path now exist; no published release binary yet
+- release surface: CI workflow, release workflow, and Homebrew-tap update path publish GitHub release assets plus the `cmdrvl/tap/cmdrvl-benchmark` formula
 
 Immediate next step in the repo:
 
@@ -513,7 +518,7 @@ Near-term:
 
 - keep README and AGENTS aligned with the actual crate
 - preserve named quality gates and runtime smoke checks
-- cut the first tagged release after the next explicit version bump
+- cut the next tagged release after each explicit version bump
 
 Deferred by design:
 

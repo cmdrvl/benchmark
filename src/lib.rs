@@ -18,7 +18,8 @@ pub mod report;
 
 use assertions::AssertionError;
 use candidate::{CandidateError, LoadedCandidate};
-use cli::{BenchmarkCommand, Cli, Command};
+use clap::CommandFactory;
+use cli::{BenchmarkCommand, Cli, Command, DoctorArgs, DoctorCommand, RobotDocsCommand};
 use engine::EngineError;
 use key_check::KeyCheckError;
 use lock_check::{LockCheckError, verify_candidate};
@@ -62,20 +63,71 @@ impl Execution {
 }
 
 pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
-    if let Some(Command::Doctor(doctor)) = cli.command.take() {
-        if cli.candidate.is_some()
-            || cli.assertions.is_some()
-            || cli.key.is_some()
-            || !cli.lock.is_empty()
-            || cli.render.is_some()
-        {
+    if cli.robot_triage {
+        if has_scoring_args(&cli) {
             return Err(
-                "`benchmark doctor` does not accept candidate, assertions, key, lock, or render arguments"
+                "`benchmark --robot-triage` does not accept candidate, assertions, key, lock, or render arguments"
                     .into(),
             );
         }
 
-        return Ok(doctor::execute(doctor, cli.json));
+        return Ok(doctor::execute(
+            DoctorArgs {
+                robot_triage: true,
+                command: None,
+            },
+            true,
+        ));
+    }
+
+    if let Some(command) = cli.command.take() {
+        if has_scoring_args(&cli) {
+            return Err(
+                "`benchmark doctor`, `benchmark capabilities`, and `benchmark robot-docs` do not accept candidate, assertions, key, lock, or render arguments"
+                    .into(),
+            );
+        }
+
+        return match command {
+            Command::Doctor(doctor) => Ok(doctor::execute(doctor, cli.json)),
+            Command::Capabilities => Ok(doctor::execute(
+                DoctorArgs {
+                    robot_triage: false,
+                    command: Some(DoctorCommand::Capabilities),
+                },
+                cli.json,
+            )),
+            Command::RobotDocs(args) => {
+                let command = args.command.unwrap_or(RobotDocsCommand::Guide);
+                match command {
+                    RobotDocsCommand::Guide => Ok(doctor::execute(
+                        DoctorArgs {
+                            robot_triage: false,
+                            command: Some(DoctorCommand::RobotDocs),
+                        },
+                        false,
+                    )),
+                }
+            }
+        };
+    }
+
+    if cli.candidate.is_none()
+        && cli.assertions.is_none()
+        && cli.key.is_none()
+        && cli.lock.is_empty()
+    {
+        if cli.json {
+            return Ok(doctor::execute(
+                DoctorArgs {
+                    robot_triage: false,
+                    command: Some(DoctorCommand::Capabilities),
+                },
+                true,
+            ));
+        }
+
+        return Ok(Execution::new(Outcome::Pass, long_help()));
     }
 
     let command = BenchmarkCommand::try_from_cli(cli)?;
@@ -89,6 +141,23 @@ pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
             stdout: render::render_refusal(&refusal, command.render_mode)?,
         }),
     }
+}
+
+fn has_scoring_args(cli: &Cli) -> bool {
+    cli.candidate.is_some()
+        || cli.assertions.is_some()
+        || cli.key.is_some()
+        || !cli.lock.is_empty()
+        || cli.render.is_some()
+}
+
+fn long_help() -> String {
+    let mut command = Cli::command();
+    let mut help = command.render_long_help().to_string();
+    if !help.ends_with('\n') {
+        help.push('\n');
+    }
+    help
 }
 
 fn execute_command(
@@ -358,6 +427,7 @@ mod tests {
             lock: Vec::new(),
             json: true,
             render: None,
+            robot_triage: false,
             command: None,
         };
 

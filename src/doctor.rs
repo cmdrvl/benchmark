@@ -84,7 +84,66 @@ fn capabilities_payload() -> Value {
         "version": env!("CARGO_PKG_VERSION"),
         "report_version": REPORT_VERSION,
         "read_only": true,
+        "agent_entrypoints": [
+            {
+                "usage": "benchmark --robot-triage",
+                "output_schema": TRIAGE_SCHEMA,
+                "description": "Single-call read-only health, side-effect, and next-step triage for automation"
+            },
+            {
+                "usage": "benchmark capabilities --json",
+                "output_schema": CAPABILITIES_SCHEMA,
+                "description": "Top-level alias for the full machine-readable CLI contract"
+            },
+            {
+                "usage": "benchmark robot-docs guide",
+                "output_schema": "text/plain",
+                "description": "Top-level alias for the agent-oriented command guide"
+            }
+        ],
         "commands": [
+            {
+                "name": "run-json",
+                "usage": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json",
+                "output_schema": "benchmark.v0",
+                "description": "Score one row-oriented candidate against a JSONL assertion set"
+            },
+            {
+                "name": "run-summary",
+                "usage": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --render summary",
+                "output_schema": "text/plain",
+                "description": "Emit a one-line operator summary derived from the score report"
+            },
+            {
+                "name": "run-summary-tsv",
+                "usage": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --render summary-tsv",
+                "output_schema": "text/tab-separated-values",
+                "description": "Emit a stable TSV header and row for shell pipelines"
+            },
+            {
+                "name": "run-with-lock",
+                "usage": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --lock <LOCKFILE> --json",
+                "output_schema": "benchmark.v0",
+                "description": "Verify candidate lock membership and hash before scoring"
+            },
+            {
+                "name": "top-level-triage",
+                "usage": "benchmark --robot-triage",
+                "output_schema": TRIAGE_SCHEMA,
+                "description": "Top-level compact triage report for automation"
+            },
+            {
+                "name": "top-level-capabilities",
+                "usage": "benchmark capabilities --json",
+                "output_schema": CAPABILITIES_SCHEMA,
+                "description": "Top-level capabilities alias"
+            },
+            {
+                "name": "top-level-robot-docs",
+                "usage": "benchmark robot-docs guide",
+                "output_schema": "text/plain",
+                "description": "Top-level agent guide alias"
+            },
             {
                 "name": "health",
                 "usage": "benchmark doctor health --json",
@@ -111,10 +170,57 @@ fn capabilities_payload() -> Value {
             }
         ],
         "exit_codes": {
-            "0": "doctor report emitted successfully",
-            "1": "reserved for benchmark scoring FAIL outcomes, not used by read-only doctor",
-            "2": "CLI usage error, benchmark refusal, or unexpected top-level error"
+            "0": "PASS scoring outcome or successful read-only metadata command",
+            "1": "FAIL scoring outcome: one or more assertions failed or skipped",
+            "2": "REFUSAL, CLI usage error, or unexpected top-level error"
         },
+        "refusal_codes": [
+            {
+                "code": "E_IO",
+                "meaning": "candidate, assertions, or lockfile could not be read",
+                "next_command": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json"
+            },
+            {
+                "code": "E_BAD_ASSERTIONS",
+                "meaning": "assertions JSONL is malformed or semantically invalid",
+                "next_command": "benchmark <CANDIDATE> --assertions <FIXED_FILE> --key <COLUMN> --json"
+            },
+            {
+                "code": "E_EMPTY_ASSERTIONS",
+                "meaning": "assertions file contains zero valid assertions",
+                "next_command": "benchmark <CANDIDATE> --assertions <NONEMPTY_FILE> --key <COLUMN> --json"
+            },
+            {
+                "code": "E_KEY_NOT_FOUND",
+                "meaning": "candidate does not contain the requested key column",
+                "next_command": "benchmark <CANDIDATE> --assertions <FILE> --key <EXISTING_COLUMN> --json"
+            },
+            {
+                "code": "E_KEY_NOT_UNIQUE",
+                "meaning": "candidate key values are ambiguous",
+                "next_command": "benchmark <CANONICALIZED_CANDIDATE> --assertions <FILE> --key <UNIQUE_COLUMN> --json"
+            },
+            {
+                "code": "E_KEY_NULL",
+                "meaning": "candidate key values include null or blank values",
+                "next_command": "benchmark <CLEAN_CANDIDATE> --assertions <FILE> --key <COLUMN> --json"
+            },
+            {
+                "code": "E_FORMAT_DETECT",
+                "meaning": "candidate format is unsupported or not one row-oriented relation",
+                "next_command": "benchmark <ROW_ORIENTED_CSV_JSON_JSONL_OR_PARQUET> --assertions <FILE> --key <COLUMN> --json"
+            },
+            {
+                "code": "E_INPUT_NOT_LOCKED",
+                "meaning": "candidate is not present in supplied lockfiles",
+                "next_command": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --lock <CORRECT_LOCKFILE> --json"
+            },
+            {
+                "code": "E_INPUT_DRIFT",
+                "meaning": "candidate hash does not match the lock member",
+                "next_command": "benchmark <LOCKED_CANDIDATE> --assertions <FILE> --key <COLUMN> --lock <LOCKFILE> --json"
+            }
+        ],
         "config_footprint": paths::config_footprint(),
         "side_effects": side_effects(),
         "fixers": []
@@ -143,7 +249,8 @@ fn triage_payload() -> Value {
         "side_effects": side_effects(),
         "fixers": [],
         "recommended_next_steps": [
-            "Use benchmark --help for the scoring CLI contract.",
+            "Use benchmark capabilities --json for the machine-readable CLI contract.",
+            "Use benchmark robot-docs guide for the agent-oriented command guide.",
             "Use benchmark <candidate> --assertions <gold.jsonl> --key <column> --json for a score report.",
             "Do not expect benchmark doctor to read candidate files, assertion files, lockfiles, open DuckDB, score assertions, or mint gold truth."
         ]
@@ -276,8 +383,16 @@ fn health_summary(payload: &Value) -> String {
 }
 
 fn robot_docs_text() -> &'static str {
-    "benchmark doctor robot-docs\n\
+    "benchmark robot-docs guide\n\
 contract: cmdrvl.read_only_doctor.v1\n\
+agent_entrypoints:\n\
+  benchmark --robot-triage\n\
+  benchmark capabilities --json\n\
+  benchmark robot-docs guide\n\
+scoring:\n\
+  benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json\n\
+  benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --render summary\n\
+  benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --lock <LOCKFILE> --json\n\
 commands:\n\
   benchmark doctor health --json\n\
   benchmark doctor capabilities --json\n\
@@ -290,6 +405,6 @@ read_only:\n\
 fix_mode:\n\
   - no --fix surface is implemented in this release\n\
 next_steps:\n\
-  - use benchmark --help for the scoring CLI contract\n\
+  - use benchmark capabilities --json for the machine-readable CLI contract\n\
   - use benchmark <candidate> --assertions <gold.jsonl> --key <column> --json for score reports"
 }

@@ -253,11 +253,9 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use duckdb::Connection;
+    use duckdb::{Connection, params};
 
-    use super::{
-        CandidateError, CandidateFormat, CandidateSource, LoadedCandidate, sql_string_literal,
-    };
+    use super::{CandidateError, CandidateFormat, CandidateSource, LoadedCandidate};
 
     static NEXT_TEST_DIR_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -310,15 +308,16 @@ mod tests {
     fn write_parquet_fixture(dir: &TestDir, name: &str) -> Result<PathBuf, Box<dyn Error>> {
         let path = dir.path().join(name);
         let connection = Connection::open_in_memory()?;
-        let escaped_path = sql_string_literal(&path);
-        let sql = format!(
-            "COPY (
+        connection.execute_batch(
+            "CREATE TEMP TABLE parquet_fixture AS
                 SELECT 'comp_1' AS comp_id, 'Marquis at Briarcliff' AS property_name
                 UNION ALL
-                SELECT 'comp_2' AS comp_id, 'Briarcliff Commons' AS property_name
-            ) TO '{escaped_path}' (FORMAT parquet);"
-        );
-        connection.execute_batch(&sql)?;
+                SELECT 'comp_2' AS comp_id, 'Briarcliff Commons' AS property_name;",
+        )?;
+        connection.execute(
+            "COPY parquet_fixture TO ? (FORMAT parquet);",
+            params![path.display().to_string()],
+        )?;
         Ok(path)
     }
 

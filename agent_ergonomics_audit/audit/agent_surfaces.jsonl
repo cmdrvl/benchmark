@@ -1,0 +1,10 @@
+{"surface_id":"S-001","score_before":420,"score_after":870,"evidence":"cargo run --quiet -- prints long help with Agent entrypoints","dimensions":["first_try_success","self_documentation"]}
+{"surface_id":"S-002","score_before":510,"score_after":880,"evidence":"cargo run --quiet -- --json returns benchmark.doctor.capabilities.v1","dimensions":["output_parseability","contract_discoverability"]}
+{"surface_id":"S-003","score_before":250,"score_after":910,"evidence":"cargo run --quiet -- --robot-triage returns benchmark.doctor.triage.v1","dimensions":["mega_command","output_parseability"]}
+{"surface_id":"S-004","score_before":500,"score_after":900,"evidence":"cargo run --quiet -- capabilities --json includes agent_entrypoints","dimensions":["self_documentation","contract_discoverability"]}
+{"surface_id":"S-005","score_before":500,"score_after":860,"evidence":"cargo run --quiet -- robot-docs guide prints agent guide","dimensions":["self_documentation"]}
+{"surface_id":"S-006","score_before":520,"score_after":840,"evidence":"cargo run --quiet -- --jsno exits 2 and names --json plus next/help commands","dimensions":["intent_inference","error_pedagogy"]}
+{"surface_id":"S-007","score_before":700,"score_after":890,"evidence":"doctor capabilities now lists top-level aliases, scoring commands, exit codes, refusal codes","dimensions":["contract_discoverability"]}
+{"surface_id":"S-008","score_before":700,"score_after":860,"evidence":"doctor robot-docs now teaches top-level aliases","dimensions":["self_documentation"]}
+{"surface_id":"S-009","score_before":430,"score_after":850,"evidence":"release workflow formula template no longer emits redundant version line","dimensions":["release_ergo"]}
+{"surface_id":"S-010","score_before":610,"score_after":820,"evidence":"README/AGENTS/PLAN aligned to Homebrew formula and top-level automation commands","dimensions":["documentation_fidelity"]}

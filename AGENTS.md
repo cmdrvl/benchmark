@@ -69,15 +69,20 @@ br ready
 br blocked
 
 # AI-agent prioritization
-bv -robot-next
-bv -robot-triage -robot-max-results 5
-bv -robot-plan
+bv --robot-next
+bv --robot-triage --robot-max-results 5
+bv --robot-plan
 
 # Current crate verification
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ubs .
+
+# Agent entrypoints
+cargo run -- --robot-triage
+cargo run -- capabilities --json
+cargo run -- robot-docs guide
 
 # Mandatory gate once the crate exists
 cargo fmt --check
@@ -414,8 +419,8 @@ Recommended AI-agent triage loop:
 br list --status in_progress --pretty
 
 # Then pick the next highest-value bead
-bv -robot-next
-bv -robot-triage -robot-max-results 5
+bv --robot-next
+bv --robot-triage --robot-max-results 5
 ```
 
 ---
@@ -496,7 +501,7 @@ Current repo reality:
 - CI workflow exists at `.github/workflows/ci.yml`
 - release workflow exists at `.github/workflows/release.yml`
 - Homebrew tap update is part of the release workflow
-- no published binary yet
+- `cmdrvl/tap/cmdrvl-benchmark` is the Homebrew formula
 
 Do not add README badges or install claims until they are real.
 
