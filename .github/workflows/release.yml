@@ -45,7 +45,9 @@ jobs:
             strip: macos
             use_cross: false
           - target: x86_64-pc-windows-msvc
-            os: windows-latest
+            # DuckDB's bundled fmt is not compatible with the VS 2026/MSVC 14.51
+            # image currently behind windows-latest.
+            os: windows-2022
             archive_ext: zip
             bin: benchmark.exe
             strip: none
