@@ -116,6 +116,15 @@ fn doctor_capabilities_json_has_no_fixers_or_side_effects() -> Result<(), Box<dy
         payload["agent_entrypoints"][2]["usage"],
         "benchmark robot-docs guide"
     );
+    assert_eq!(payload["composition"]["role"], "gold_set_scorer");
+    assert_eq!(
+        payload["composition"]["produces"][0]["policy_signals"][0],
+        "quality_band"
+    );
+    assert_eq!(
+        payload["composition"]["canonical_chains"][0]["commands"][1],
+        "assess benchmark.json <other-artifacts> --policy <policy.yaml> --json > decision.json"
+    );
     assert!(
         payload["commands"]
             .as_array()
@@ -161,6 +170,10 @@ fn doctor_robot_docs_is_plain_text_and_read_only() -> Result<(), Box<dyn std::er
     assert!(stdout.contains("benchmark capabilities --json"));
     assert!(stdout.contains("benchmark robot-docs guide"));
     assert!(stdout.contains("benchmark doctor health --json"));
+    assert!(stdout.contains(
+        "assess benchmark.json <other-artifacts> --policy <policy.yaml> --json > decision.json"
+    ));
+    assert!(stdout.contains("pack seal benchmark.json decision.json --output evidence/"));
     assert!(stdout.contains("no implicit ~/.cmdrvl config"));
     assert!(stdout.contains("no --fix surface"));
     assert_doctor_artifacts_absent();

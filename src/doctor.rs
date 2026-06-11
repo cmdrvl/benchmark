@@ -221,6 +221,58 @@ fn capabilities_payload() -> Value {
                 "next_command": "benchmark <LOCKED_CANDIDATE> --assertions <FILE> --key <COLUMN> --lock <LOCKFILE> --json"
             }
         ],
+        "composition": {
+            "family": {
+                "name": "cmdrvl-spine",
+                "siblings": ["canon", "verify", "assess", "lock", "pack"],
+                "capabilities": {
+                    "benchmark": "benchmark capabilities --json",
+                    "assess": "assess capabilities --json",
+                    "lock": "lock capabilities --json",
+                    "pack": "pack capabilities --json"
+                }
+            },
+            "role": "gold_set_scorer",
+            "position": "before_assess",
+            "accepts": [
+                {
+                    "kind": "candidate_relation",
+                    "description": "One row-oriented candidate relation in CSV, JSON, JSONL, or Parquet form."
+                },
+                {
+                    "kind": "assertion_set",
+                    "description": "Human-validated JSONL assertions keyed by the same stable entity column."
+                },
+                {
+                    "kind": "lockfile",
+                    "description": "Optional lock artifact proving candidate membership and hash identity."
+                }
+            ],
+            "produces": [
+                {
+                    "kind": "benchmark_report",
+                    "schema": "benchmark.v0",
+                    "policy_signals": ["quality_band", "quality_band_basis"],
+                    "command": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json"
+                }
+            ],
+            "canonical_chains": [
+                {
+                    "name": "score_then_assess",
+                    "commands": [
+                        "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json > benchmark.json",
+                        "assess benchmark.json <other-artifacts> --policy <policy.yaml> --json > decision.json",
+                        "pack seal benchmark.json decision.json --output evidence/"
+                    ],
+                    "downstream_tools": ["assess", "pack"]
+                }
+            ],
+            "agent_rules": [
+                "Use benchmark to produce quality evidence, not policy decisions.",
+                "Pass benchmark.v0 reports to assess when policy rules depend on quality_band.",
+                "Use --lock when the candidate should be tied to a prior vacuum/hash/lock pipeline."
+            ]
+        },
         "config_footprint": paths::config_footprint(),
         "side_effects": side_effects(),
         "fixers": []
@@ -397,6 +449,10 @@ commands:\n\
   benchmark doctor health --json\n\
   benchmark doctor capabilities --json\n\
   benchmark doctor --robot-triage\n\
+composition:\n\
+  benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json > benchmark.json\n\
+  assess benchmark.json <other-artifacts> --policy <policy.yaml> --json > decision.json\n\
+  pack seal benchmark.json decision.json --output evidence/\n\
 read_only:\n\
   - does not read stdin, candidates, assertions, lockfiles, or fixture paths\n\
   - does not detect formats, open DuckDB, validate keys, verify locks, compare values, score assertions, or mint gold truth\n\

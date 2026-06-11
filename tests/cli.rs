@@ -185,6 +185,7 @@ fn bench_u_json_only_returns_capabilities_contract() -> Result<(), Box<dyn std::
         payload["agent_entrypoints"][0]["usage"],
         "benchmark --robot-triage"
     );
+    assert_eq!(payload["composition"]["role"], "gold_set_scorer");
     Ok(())
 }
 
@@ -220,6 +221,10 @@ fn bench_u_top_level_capabilities_and_robot_docs_aliases_work()
     assert!(
         docs.stdout
             .contains("benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json")
+    );
+    assert!(
+        docs.stdout
+            .contains("assess benchmark.json <other-artifacts> --policy <policy.yaml> --json")
     );
     Ok(())
 }
