@@ -14,12 +14,17 @@ categories = ["command-line-utilities"]
 name = "benchmark"
 path = "src/main.rs"
 
+[features]
+default = ["bundled"]
+bundled = ["duckdb/json", "duckdb/parquet"]
+
 [dependencies]
+bigdecimal = "=0.4.11"
 clap = { version = "4", features = ["derive"] }
-duckdb = { version = "1.4.4", features = ["json", "parquet"] }
+duckdb = "1.4.4"
 gag = "1.0.0"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["arbitrary_precision", "raw_value"] }
 sha2 = "0.10"
 thiserror = "2"
 

@@ -1,10 +1,16 @@
 use std::{
+    collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fs, io,
     path::{Path, PathBuf},
 };
 
 use duckdb::Connection;
+use serde::{
+    Deserialize, Deserializer,
+    de::{self, MapAccess, Visitor},
+};
+use serde_json::value::RawValue;
 use thiserror::Error;
 
 const RELATION_NAME: &str = "benchmark_candidate";
@@ -87,7 +93,7 @@ impl CandidateFormat {
     fn load_sql(self, escaped_path: &str) -> String {
         match self {
             Self::Csv => format!(
-                "CREATE TEMP TABLE {RELATION_NAME} AS SELECT * FROM read_csv_auto('{escaped_path}');"
+                "CREATE TEMP TABLE {RELATION_NAME} AS SELECT * FROM read_csv_auto('{escaped_path}', all_varchar=true);"
             ),
             Self::Json => format!(
                 "CREATE TEMP TABLE {RELATION_NAME} AS SELECT * FROM read_json_auto('{escaped_path}');"
@@ -123,14 +129,19 @@ impl LoadedCandidate {
                 path: source.path.clone(),
                 source: source_error,
             })?;
-        let escaped_path = sql_string_literal(&source.path);
-        let load_sql = source.format.load_sql(&escaped_path);
-        connection
-            .execute_batch(&load_sql)
-            .map_err(|source_error| CandidateError::Load {
-                path: source.path.clone(),
-                source: source_error,
-            })?;
+        let loaded = if matches!(
+            source.format,
+            CandidateFormat::Json | CandidateFormat::Jsonl
+        ) {
+            load_scalar_json(&connection, &source)?;
+            Ok(())
+        } else {
+            connection.execute_batch(&source.format.load_sql(&sql_string_literal(&source.path)))
+        };
+        loaded.map_err(|source_error| CandidateError::Load {
+            path: source.path.clone(),
+            source: source_error,
+        })?;
 
         let columns = describe_relation(&connection, RELATION_NAME).map_err(|source_error| {
             CandidateError::Load {
@@ -169,6 +180,110 @@ impl LoadedCandidate {
     pub fn columns(&self) -> &[CandidateColumn] {
         &self.columns
     }
+}
+
+struct ScalarRow(BTreeMap<String, Option<String>>);
+
+impl<'de> Deserialize<'de> for ScalarRow {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct RowVisitor;
+        impl<'de> Visitor<'de> for RowVisitor {
+            type Value = ScalarRow;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("one object with unique scalar fields")
+            }
+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<ScalarRow, M::Error> {
+                let mut fields = BTreeMap::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if fields.contains_key(&key) {
+                        return Err(de::Error::custom(format!("duplicate JSON field: {key}")));
+                    }
+                    let raw = map.next_value::<Box<RawValue>>()?;
+                    let value = match raw.get() {
+                        "null" => None,
+                        text if text.starts_with('"') => {
+                            Some(serde_json::from_str::<String>(text).map_err(de::Error::custom)?)
+                        }
+                        text if text.starts_with('{') || text.starts_with('[') => {
+                            return Err(de::Error::custom("nested JSON fields are unsupported"));
+                        }
+                        // RawValue retains each numeric lexeme, including digits
+                        // beyond f64/DECIMAL widths and exponent/trailing-zero text.
+                        text => Some(text.to_owned()),
+                    };
+                    fields.insert(key, value);
+                }
+                Ok(ScalarRow(fields))
+            }
+        }
+        deserializer.deserialize_map(RowVisitor)
+    }
+}
+
+fn load_scalar_json(
+    connection: &Connection,
+    source: &CandidateSource,
+) -> Result<(), CandidateError> {
+    let raw = fs::read(&source.path).map_err(|source_error| CandidateError::Io {
+        path: source.path.clone(),
+        source: source_error,
+    })?;
+    let shape_error = |error: String| CandidateError::CandidateShape {
+        path: source.path.clone(),
+        detail: error,
+    };
+    let tokens: Vec<Box<RawValue>> = if source.format == CandidateFormat::Jsonl {
+        raw.split(|byte| *byte == b'\n')
+            .filter(|line| !line.iter().all(u8::is_ascii_whitespace))
+            .map(serde_json::from_slice)
+            .collect::<Result<_, _>>()
+            .map_err(|error| shape_error(error.to_string()))?
+    } else {
+        let document: Box<RawValue> =
+            serde_json::from_slice(&raw).map_err(|error| shape_error(error.to_string()))?;
+        if document.get().starts_with('[') {
+            serde_json::from_str(document.get()).map_err(|error| shape_error(error.to_string()))?
+        } else {
+            vec![document]
+        }
+    };
+    let rows = tokens
+        .iter()
+        .map(|token| serde_json::from_str::<ScalarRow>(token.get()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| shape_error(error.to_string()))?;
+    let columns: Vec<_> = rows
+        .iter()
+        .flat_map(|row| row.0.keys().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    if columns.is_empty() {
+        return Err(shape_error(
+            "JSON candidate has no scalar columns".to_owned(),
+        ));
+    }
+    let schema = columns
+        .iter()
+        .map(|name| format!("\"{}\" VARCHAR", name.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let populate = || -> duckdb::Result<()> {
+        connection.execute_batch(&format!("CREATE TEMP TABLE {RELATION_NAME} ({schema});"))?;
+        let mut appender = connection.appender(RELATION_NAME)?;
+        for row in &rows {
+            appender.append_row(duckdb::appender_params_from_iter(
+                columns
+                    .iter()
+                    .map(|column| row.0.get(column).and_then(|value| value.as_deref())),
+            ))?;
+        }
+        appender.flush()
+    };
+    populate().map_err(|error| CandidateError::Load {
+        path: source.path.clone(),
+        source: error,
+    })
 }
 
 fn ensure_candidate_is_file(path: &Path) -> Result<(), CandidateError> {

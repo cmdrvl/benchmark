@@ -229,7 +229,7 @@ fn evaluate_assertion(
             expected: assertion.expected.trim().to_owned(),
             actual: None,
             compare_as: assertion.compare_as,
-            tolerance: assertion.tolerance,
+            tolerance: assertion.tolerance.clone(),
             severity: assertion.severity,
             source: assertion.source.clone(),
             outcome: AssertionOutcome::SkipField,
@@ -247,7 +247,7 @@ fn evaluate_assertion(
             expected: assertion.expected.trim().to_owned(),
             actual: None,
             compare_as: assertion.compare_as,
-            tolerance: assertion.tolerance,
+            tolerance: assertion.tolerance.clone(),
             severity: assertion.severity,
             source: assertion.source.clone(),
             outcome: AssertionOutcome::SkipEntity,
@@ -268,7 +268,7 @@ fn evaluate_assertion(
                 expected: assertion.expected.trim().to_owned(),
                 actual: None,
                 compare_as: assertion.compare_as,
-                tolerance: assertion.tolerance,
+                tolerance: assertion.tolerance.clone(),
                 severity: assertion.severity,
                 source: assertion.source.clone(),
                 outcome: AssertionOutcome::Fail,
@@ -281,7 +281,7 @@ fn evaluate_assertion(
         &assertion.expected,
         actual_value,
         assertion.compare_as,
-        assertion.tolerance,
+        assertion.tolerance.as_ref(),
     ) {
         Ok(comparison) => Ok(EvaluatedAssertion {
             entity: assertion.entity.clone(),
@@ -289,7 +289,7 @@ fn evaluate_assertion(
             expected: comparison.expected,
             actual: Some(comparison.actual),
             compare_as: assertion.compare_as,
-            tolerance: assertion.tolerance,
+            tolerance: assertion.tolerance.clone(),
             severity: assertion.severity,
             source: assertion.source.clone(),
             outcome: if comparison.matched {
@@ -305,7 +305,9 @@ fn evaluate_assertion(
         Err(error)
             if matches!(
                 error,
-                CompareError::InvalidTolerance { .. } | CompareError::NegativeTolerance { .. }
+                CompareError::InvalidTolerance { .. }
+                    | CompareError::NegativeTolerance { .. }
+                    | CompareError::InvalidNumericTolerance { .. }
             ) =>
         {
             Err(EngineError::InvalidComparisonConfiguration {
@@ -321,7 +323,7 @@ fn evaluate_assertion(
             expected: assertion.expected.trim().to_owned(),
             actual,
             compare_as: assertion.compare_as,
-            tolerance: assertion.tolerance,
+            tolerance: assertion.tolerance.clone(),
             severity: assertion.severity,
             source: assertion.source.clone(),
             outcome: AssertionOutcome::Fail,
@@ -335,7 +337,9 @@ fn compare_error_targets_expected(error: &CompareError, expected: &str, actual: 
         CompareError::InvalidNumber { value }
         | CompareError::InvalidPercent { value }
         | CompareError::InvalidDate { value } => value == expected.trim() || value != actual,
-        CompareError::InvalidTolerance { .. } | CompareError::NegativeTolerance { .. } => false,
+        CompareError::InvalidTolerance { .. }
+        | CompareError::NegativeTolerance { .. }
+        | CompareError::InvalidNumericTolerance { .. } => false,
     }
 }
 

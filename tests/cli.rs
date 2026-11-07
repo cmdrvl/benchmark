@@ -54,7 +54,7 @@ fn sample_report(outcome: AssertionOutcome) -> BenchmarkReport {
             expected: "5.0%".to_owned(),
             actual: Some("5.5%".to_owned()),
             compare_as: CompareAs::Percent,
-            tolerance: Some(0.01),
+            tolerance: Some("0.01".parse().expect("fixture tolerance")),
             severity: Severity::Major,
             source: Some("reference_excel:E18".to_owned()),
             outcome,

@@ -248,7 +248,7 @@ pub struct EvaluatedAssertion {
     pub expected: String,
     pub actual: Option<String>,
     pub compare_as: CompareAs,
-    pub tolerance: Option<f64>,
+    pub tolerance: Option<serde_json::Number>,
     pub severity: Severity,
     pub source: Option<String>,
     pub outcome: AssertionOutcome,
@@ -267,7 +267,7 @@ impl EvaluatedAssertion {
             expected: self.expected.clone(),
             actual: self.actual.clone(),
             compare_as: self.compare_as,
-            tolerance: self.tolerance,
+            tolerance: self.tolerance.clone(),
             severity: self.severity,
             source: self.source.clone(),
         })
@@ -296,7 +296,7 @@ pub struct FailureRecord {
     pub expected: String,
     pub actual: Option<String>,
     pub compare_as: CompareAs,
-    pub tolerance: Option<f64>,
+    pub tolerance: Option<serde_json::Number>,
     pub severity: Severity,
     pub source: Option<String>,
 }

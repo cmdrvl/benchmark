@@ -46,6 +46,11 @@ cargo run -- \
 cargo test
 ```
 
+Default builds retain bundled DuckDB JSON/Parquet support. For an existing
+compatible DuckDB library, `--no-default-features` enables the dependency's
+standard linked-library mode (`DUCKDB_LIB_DIR`, `DUCKDB_STATIC`); the supplied
+library must provide the required extensions. This does not change comparisons.
+
 If you are here to build or verify the tool, start with the plan, the Beads graph, and the local fixture corpus.
 
 Read-only doctor mode is available for automation and agent triage:
@@ -306,6 +311,12 @@ Supported candidate formats:
 | row-oriented JSON | supported |
 | document-shaped / nested JSON | out of scope for v0 |
 
+CSV scalar text and JSON/JSONL scalar lexemes are retained before comparison;
+loading does not infer numbers, dates or numeric-looking keys. JSON strings are
+decoded, null stays null, and nested or duplicate fields refuse. Parquet retains
+its stored scalar types; precision already lost before writing an artifact
+cannot be recovered.
+
 Important non-goal:
 
 - `benchmark` must never guess how to flatten a document-shaped input
@@ -375,6 +386,15 @@ Two important constraints:
 
 - tolerance is only legal for `number` and `percent`
 - `percent` does **not** auto-convert ratio-form decimals like `0.0676` into `6.76%`
+
+Numeric assertions and absolute tolerances use exact decimal arithmetic. `number`
+compares decimal values (so `12.50` equals `12.5`); `percent` compares percentage
+points without converting ratios. Numeric JSON tolerance tokens remain exact in
+reports. Numeric inputs are bounded to 4,096 bytes, 1,024 coefficient digits and
+normalized absolute scale 1,024; unsupported/nonfinite expected values or
+tolerances refuse, while invalid actual values fail their assertion. The Rust
+assertion/report tolerance type is now an exact `serde_json::Number`, rather
+than `f64`; the JSON wire field remains a number.
 
 ---
 

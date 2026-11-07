@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::compare::CompareAs;
+use crate::compare::{CompareAs, numeric_tolerance};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -19,7 +19,7 @@ pub struct Assertion {
     pub expected: String,
     #[serde(default)]
     pub compare_as: CompareAs,
-    pub tolerance: Option<f64>,
+    pub tolerance: Option<serde_json::Number>,
     #[serde(default)]
     pub severity: Severity,
     pub source: Option<String>,
@@ -27,13 +27,11 @@ pub struct Assertion {
 
 impl Assertion {
     fn validate(&self, path: &Path, line: usize) -> Result<(), AssertionError> {
-        if let Some(tolerance) = self.tolerance
-            && tolerance < 0.0
-        {
+        if let Err(error) = numeric_tolerance(self.tolerance.as_ref()) {
             return Err(AssertionError::Semantic {
                 path: path.to_path_buf(),
                 line,
-                message: "tolerance must be non-negative".to_owned(),
+                message: error.to_string(),
             });
         }
 
@@ -248,7 +246,10 @@ mod tests {
 
         assert_eq!(set.assertions[1].entity, "comp_2");
         assert_eq!(set.assertions[1].compare_as, CompareAs::Number);
-        assert_eq!(set.assertions[1].tolerance, Some(1000.0));
+        assert_eq!(
+            set.assertions[1].tolerance,
+            Some(serde_json::Number::from(1000))
+        );
         assert_eq!(
             set.assertions[1].severity,
             crate::assertions::Severity::Critical

@@ -1,4 +1,8 @@
+use std::str::FromStr;
+
+use bigdecimal::{BigDecimal, Signed};
 use serde::{Deserialize, Serialize};
+use serde_json::Number;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +39,8 @@ pub enum CompareError {
     InvalidTolerance { compare_as: &'static str },
     #[error("tolerance must be non-negative, got {value}")]
     NegativeTolerance { value: String },
+    #[error("tolerance must be a bounded finite decimal, got {value}")]
+    InvalidNumericTolerance { value: String },
     #[error("failed to parse number value '{value}'")]
     InvalidNumber { value: String },
     #[error("failed to parse percent value '{value}'")]
@@ -47,7 +53,7 @@ pub fn compare_values(
     expected: &str,
     actual: &str,
     compare_as: CompareAs,
-    tolerance: Option<f64>,
+    tolerance: Option<&Number>,
 ) -> Result<ComparisonOutcome, CompareError> {
     let expected = expected.trim();
     let actual = actual.trim();
@@ -80,7 +86,7 @@ pub fn compare_values(
 fn compare_number(
     expected: &str,
     actual: &str,
-    tolerance: Option<f64>,
+    tolerance: Option<&Number>,
 ) -> Result<ComparisonOutcome, CompareError> {
     let tolerance = numeric_tolerance(tolerance)?;
     let expected_value = parse_number(expected)?;
@@ -97,7 +103,7 @@ fn compare_number(
 fn compare_percent(
     expected: &str,
     actual: &str,
-    tolerance: Option<f64>,
+    tolerance: Option<&Number>,
 ) -> Result<ComparisonOutcome, CompareError> {
     let tolerance = numeric_tolerance(tolerance)?;
     let expected_value = parse_percent(expected)?;
@@ -111,7 +117,7 @@ fn compare_percent(
     })
 }
 
-fn reject_tolerance(compare_as: CompareAs, tolerance: Option<f64>) -> Result<(), CompareError> {
+fn reject_tolerance(compare_as: CompareAs, tolerance: Option<&Number>) -> Result<(), CompareError> {
     if tolerance.is_some() {
         return Err(CompareError::InvalidTolerance {
             compare_as: compare_as.label(),
@@ -121,37 +127,59 @@ fn reject_tolerance(compare_as: CompareAs, tolerance: Option<f64>) -> Result<(),
     Ok(())
 }
 
-fn numeric_tolerance(tolerance: Option<f64>) -> Result<f64, CompareError> {
-    match tolerance {
-        Some(value) if value < 0.0 => Err(CompareError::NegativeTolerance {
-            value: value.to_string(),
-        }),
-        Some(value) => Ok(value),
-        None => Ok(0.0),
+pub(crate) fn numeric_tolerance(tolerance: Option<&Number>) -> Result<BigDecimal, CompareError> {
+    let Some(token) = tolerance else {
+        return Ok(BigDecimal::default());
+    };
+    let text = token.to_string();
+    let value = bounded_decimal(&text).ok_or_else(|| CompareError::InvalidNumericTolerance {
+        value: text.clone(),
+    })?;
+    if value.is_negative() {
+        return Err(CompareError::NegativeTolerance { value: text });
     }
+    Ok(value)
 }
 
-fn parse_number(value: &str) -> Result<f64, CompareError> {
-    value
-        .parse::<f64>()
-        .map_err(|_| CompareError::InvalidNumber {
-            value: value.to_owned(),
-        })
+fn bounded_decimal(text: &str) -> Option<BigDecimal> {
+    // Bound exponent alignment before exact subtraction can allocate large
+    // coefficients. This is a resource limit, never a rounding precision.
+    if text.len() > 4096
+        || !text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'.' | b'e' | b'E'))
+    {
+        return None;
+    }
+    let value = BigDecimal::from_str(text).ok()?;
+    // Check before normalization too: an extreme i64 scale must not overflow
+    // while removing trailing zeros from the coefficient.
+    if value.as_bigint_and_exponent().1.unsigned_abs() > 4096 {
+        return None;
+    }
+    let value = value.normalized();
+    let (coefficient, scale) = value.as_bigint_and_exponent();
+    (scale.unsigned_abs() <= 1024
+        && coefficient.to_str_radix(10).trim_start_matches('-').len() <= 1024)
+        .then_some(value)
 }
 
-fn parse_percent(value: &str) -> Result<f64, CompareError> {
+fn parse_number(value: &str) -> Result<BigDecimal, CompareError> {
+    bounded_decimal(value).ok_or_else(|| CompareError::InvalidNumber {
+        value: value.to_owned(),
+    })
+}
+
+fn parse_percent(value: &str) -> Result<BigDecimal, CompareError> {
     let stripped = value
         .strip_suffix('%')
         .ok_or_else(|| CompareError::InvalidPercent {
             value: value.to_owned(),
         })?;
 
-    stripped
-        .trim()
-        .parse::<f64>()
-        .map_err(|_| CompareError::InvalidPercent {
-            value: value.to_owned(),
-        })
+    bounded_decimal(stripped.trim()).ok_or_else(|| CompareError::InvalidPercent {
+        value: value.to_owned(),
+    })
 }
 
 fn normalize_date(value: &str) -> Result<String, CompareError> {
@@ -224,10 +252,18 @@ mod tests {
 
     #[test]
     fn BENCH_U003_number_honors_absolute_tolerance() -> Result<(), Box<dyn std::error::Error>> {
-        let within_tolerance =
-            compare_values("28200000", "28200500", CompareAs::Number, Some(1000.0))?;
-        let outside_tolerance =
-            compare_values("28200000", "28202000", CompareAs::Number, Some(1000.0))?;
+        let within_tolerance = compare_values(
+            "28200000",
+            "28200500",
+            CompareAs::Number,
+            Some(&serde_json::Number::from(1000)),
+        )?;
+        let outside_tolerance = compare_values(
+            "28200000",
+            "28202000",
+            CompareAs::Number,
+            Some(&serde_json::Number::from(1000)),
+        )?;
 
         assert!(within_tolerance.matched);
         assert!(!outside_tolerance.matched);
@@ -291,10 +327,20 @@ mod tests {
 
     #[test]
     fn BENCH_U011_tolerance_is_rejected_for_string_and_date() {
-        let string_error =
-            compare_values("value", "value", CompareAs::String, Some(0.1)).unwrap_err();
-        let date_error =
-            compare_values("2026-03-08", "2026-03-08", CompareAs::Date, Some(1.0)).unwrap_err();
+        let string_error = compare_values(
+            "value",
+            "value",
+            CompareAs::String,
+            Some(&"0.1".parse().expect("fixture tolerance")),
+        )
+        .unwrap_err();
+        let date_error = compare_values(
+            "2026-03-08",
+            "2026-03-08",
+            CompareAs::Date,
+            Some(&serde_json::Number::from(1)),
+        )
+        .unwrap_err();
 
         assert_eq!(
             string_error,
@@ -310,8 +356,20 @@ mod tests {
 
     #[test]
     fn BENCH_U012_negative_tolerance_is_rejected_for_numeric_modes() {
-        let number_error = compare_values("10", "10", CompareAs::Number, Some(-1.0)).unwrap_err();
-        let percent_error = compare_values("5%", "5%", CompareAs::Percent, Some(-0.5)).unwrap_err();
+        let number_error = compare_values(
+            "10",
+            "10",
+            CompareAs::Number,
+            Some(&serde_json::Number::from(-1)),
+        )
+        .unwrap_err();
+        let percent_error = compare_values(
+            "5%",
+            "5%",
+            CompareAs::Percent,
+            Some(&"-0.5".parse().expect("fixture tolerance")),
+        )
+        .unwrap_err();
 
         assert_eq!(
             number_error,
