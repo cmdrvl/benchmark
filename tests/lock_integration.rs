@@ -2,84 +2,13 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::atomic::{AtomicU64, Ordering},
+    process::Command,
 };
 
 use benchmark::lock_check::{LockCheckError, verify_candidate};
 
-static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
 fn fixture(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
-}
-
-fn real_lock_fixture(algorithm: &str) -> Result<(PathBuf, PathBuf), Box<dyn std::error::Error>> {
-    let sequence = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let directory = std::env::temp_dir().join(format!(
-        "benchmark-real-lock-{}-{sequence}-{algorithm}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&directory)?;
-
-    let candidate = directory.join("bench_i001_candidate.csv");
-    fs::copy(
-        fixture("tests/fixtures/candidates/smoke/bench_i001_candidate.csv"),
-        &candidate,
-    )?;
-    let scan = Command::new("vacuum")
-        .arg(&directory)
-        .arg("--no-witness")
-        .output()?;
-    if !scan.status.success() {
-        return Err(format!(
-            "installed vacuum failed: {}",
-            String::from_utf8_lossy(&scan.stderr)
-        )
-        .into());
-    }
-
-    let mut hash = Command::new("hashbytes")
-        .args(["--algorithm", algorithm, "--no-witness"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    hash.stdin
-        .take()
-        .ok_or("hashbytes stdin unavailable")?
-        .write_all(&scan.stdout)?;
-    let hashed = hash.wait_with_output()?;
-    if !hashed.status.success() {
-        return Err(format!(
-            "installed hashbytes failed: {}",
-            String::from_utf8_lossy(&hashed.stderr)
-        )
-        .into());
-    }
-
-    let mut lock = Command::new("lock")
-        .args(["--dataset-id", "benchmark-real-lock", "--no-witness"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    lock.stdin
-        .take()
-        .ok_or("lock stdin unavailable")?
-        .write_all(&hashed.stdout)?;
-    let locked = lock.wait_with_output()?;
-    if !locked.status.success() {
-        return Err(format!(
-            "installed lock failed: {}",
-            String::from_utf8_lossy(&locked.stderr)
-        )
-        .into());
-    }
-
-    let lockfile = directory.join(format!("{algorithm}.lock.json"));
-    fs::write(&lockfile, locked.stdout)?;
-    Ok((candidate, lockfile))
 }
 
 #[allow(non_snake_case)]
@@ -124,10 +53,13 @@ fn BENCH_I010_lock_non_member_fixture_refuses_before_scoring()
 }
 
 #[test]
-fn benchmark_lock_verifies_real_installed_lockfiles_for_sha256_and_blake3()
+fn benchmark_lock_verifies_committed_real_lockfiles_for_sha256_and_blake3()
 -> Result<(), Box<dyn std::error::Error>> {
+    let candidate = fixture("tests/fixtures/candidates/smoke/bench_i001_candidate.csv");
     for algorithm in ["sha256", "blake3"] {
-        let (candidate, lockfile) = real_lock_fixture(algorithm)?;
+        let lockfile = fixture(&format!(
+            "tests/fixtures/locks/real/benchmark-real-lock-{algorithm}.lock.json"
+        ));
         let verification = verify_candidate(&candidate, std::slice::from_ref(&lockfile))?;
         assert!(
             verification
@@ -160,9 +92,13 @@ fn benchmark_lock_verifies_real_installed_lockfiles_for_sha256_and_blake3()
                 .is_some_and(|hash| hash.starts_with(&format!("{algorithm}:")))
         );
 
-        let mut changed = fs::OpenOptions::new().append(true).open(&candidate)?;
+        let drift_directory = tempfile::tempdir()?;
+        let drift_candidate = drift_directory.path().join("bench_i001_candidate.csv");
+        fs::copy(&candidate, &drift_candidate)?;
+        let mut changed = fs::OpenOptions::new().append(true).open(&drift_candidate)?;
         changed.write_all(b"\n")?;
-        let drift = verify_candidate(&candidate, std::slice::from_ref(&lockfile)).unwrap_err();
+        let drift =
+            verify_candidate(&drift_candidate, std::slice::from_ref(&lockfile)).unwrap_err();
         assert_eq!(drift.refusal_code(), "E_INPUT_DRIFT");
         assert!(matches!(drift, LockCheckError::InputDrift { .. }));
     }
