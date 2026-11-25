@@ -1,0 +1,127 @@
+{
+  "schema_version": "operator.v1",
+  "name": "benchmark",
+  "tool_version": "0.3.0",
+  "contract_version": "1.0.0",
+  "description": "Gold-set scoring for row-oriented extraction pipelines. Scores one row-oriented candidate relation (CSV, JSON, JSONL or Parquet) against a human-validated JSONL assertion set and emits a deterministic benchmark.v0 score report with a derived quality band for downstream policy.",
+  "repository": "https://github.com/cmdrvl/benchmark",
+  "license": "MIT",
+  "agent_guide": "https://github.com/cmdrvl/.github/blob/main/profile/AGENT_PROMPT.md",
+  "invocation": {
+    "binary": "benchmark",
+    "usage": [
+      "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>]",
+      "benchmark --describe",
+      "benchmark --robot-triage",
+      "benchmark capabilities --json",
+      "benchmark robot-docs guide",
+      "benchmark doctor [health|capabilities|robot-docs] [--json]"
+    ],
+    "output_mode": "human text by default; benchmark.v0 JSON with --json; one-line summary or TSV with --render",
+    "output_schema": "benchmark.v0",
+    "json_flag": "--json"
+  },
+  "arguments": [
+    {
+      "name": "candidate",
+      "type": "file_path",
+      "position": 0,
+      "required": true,
+      "description": "Candidate relation to score (CSV, JSON, JSONL or Parquet)"
+    }
+  ],
+  "options": [
+    { "name": "assertions", "flag": "--assertions", "type": "file_path", "required": true, "description": "Human-validated assertion file (JSONL). Frozen input: the cache key is (candidate bytes, assertion bytes, key column)." },
+    { "name": "key", "flag": "--key", "type": "string", "required": true, "description": "Key column used to look up each assertion's entity in the candidate" },
+    { "name": "lock", "flag": "--lock", "type": "file_path", "repeatable": true, "description": "Verify the candidate is a member of these lock.v0 lockfiles before scoring; refuses E_INPUT_NOT_LOCKED or E_INPUT_DRIFT" },
+    { "name": "json", "flag": "--json", "type": "flag", "description": "Emit the machine-readable benchmark.v0 JSON report" },
+    { "name": "render", "flag": "--render", "type": "enum", "values": ["summary", "summary-tsv"], "description": "Emit a one-line summary or a TSV header and row instead of the full report (conflicts with --json)" },
+    { "name": "describe", "flag": "--describe", "type": "flag", "description": "Print this operator manifest (identical to `capabilities --json`) and exit 0" },
+    { "name": "robot_triage", "flag": "--robot-triage", "type": "flag", "description": "Emit compact read-only triage JSON for automation" },
+    { "name": "version", "flag": "--version", "type": "flag", "description": "Print the benchmark version and exit 0" }
+  ],
+  "commands": [
+    {
+      "name": "capabilities",
+      "description": "Emit this machine-readable contract (same document as --describe).",
+      "options": [{ "name": "json", "flag": "--json", "type": "flag", "description": "Emit the contract as JSON" }]
+    },
+    {
+      "name": "robot-docs",
+      "description": "Print the agent-oriented command guide (`robot-docs guide`).",
+      "arguments": [{ "name": "topic", "type": "string", "position": 0, "required": false, "description": "Only `guide` is defined" }]
+    },
+    {
+      "name": "doctor",
+      "description": "Read-only health report: crate identity, report contract and side-effect boundaries. Never reads candidates, assertions or lockfiles. Subcommands: health (default), capabilities, robot-docs. `--robot-triage` emits compact triage JSON.",
+      "options": [
+        { "name": "json", "flag": "--json", "type": "flag", "description": "Emit JSON" },
+        { "name": "robot_triage", "flag": "--robot-triage", "type": "flag", "description": "Emit compact triage JSON" }
+      ]
+    }
+  ],
+  "exit_codes": {
+    "0": { "meaning": "PASS: every assertion passed; or a read-only metadata command succeeded", "domain": "positive" },
+    "1": { "meaning": "FAIL: one or more assertions failed or were skipped (doctor: unhealthy)", "domain": "negative" },
+    "2": { "meaning": "REFUSAL, CLI usage error, or unexpected top-level error", "domain": "error" }
+  },
+  "refusals": [
+    { "code": "E_IO", "message": "Candidate, assertions or lockfile could not be read", "action": "fix the path or permissions and rerun" },
+    { "code": "E_BAD_ASSERTIONS", "message": "Assertions JSONL is malformed or semantically invalid", "action": "fix the assertion file and rerun" },
+    { "code": "E_EMPTY_ASSERTIONS", "message": "Assertions file contains zero valid assertions", "action": "supply a non-empty assertion set" },
+    { "code": "E_KEY_NOT_FOUND", "message": "Candidate does not contain the requested key column", "action": "pass an existing column to --key" },
+    { "code": "E_KEY_NOT_UNIQUE", "message": "Candidate key values are ambiguous", "action": "canonicalize the candidate or choose a unique key" },
+    { "code": "E_KEY_NULL", "message": "Candidate key values include null or blank values", "action": "clean the candidate key column" },
+    { "code": "E_FORMAT_DETECT", "message": "Candidate format is unsupported or is not one row-oriented relation", "action": "supply CSV, JSON, JSONL or Parquet with one row per record" },
+    { "code": "E_INPUT_NOT_LOCKED", "message": "Candidate is not present in the supplied lockfiles", "action": "pass the correct --lock or lock the candidate first", "flag": "--lock" },
+    { "code": "E_INPUT_DRIFT", "message": "Candidate hash does not match the lock member", "action": "use the locked file or regenerate the lock", "flag": "--lock" }
+  ],
+  "env_vars": [],
+  "formats": ["csv", "json", "jsonl", "parquet"],
+  "side_effects": {
+    "reads_files": true,
+    "writes_files": false,
+    "network": false,
+    "writes_witness": false,
+    "notes": "Reads only the candidate, assertion and lock paths given on the command line. Score reports go to stdout; the only way benchmark writes an artifact is shell redirection. Ambient witness recording is not implemented."
+  },
+  "pipeline": {
+    "upstream": ["canon", "rvl", "shape", "decoding"],
+    "downstream": ["assess", "pack"]
+  },
+  "capabilities": {
+    "profile_aware": false,
+    "streaming": false,
+    "agent_surfaces": {
+      "global_json": "benchmark --json",
+      "robot_triage": "benchmark --robot-triage",
+      "capabilities": "benchmark capabilities --json",
+      "robot_docs": "benchmark robot-docs guide",
+      "doctor_fix": "not_available"
+    },
+    "witness": {
+      "ambient_recording": "not_applicable",
+      "note": "benchmark does not write an ambient witness ledger in this release."
+    },
+    "determinism": {
+      "deterministic": true,
+      "statement": "The same candidate bytes, assertion set bytes and key column always produce a byte-identical report.",
+      "frozen_inputs": ["assertions"],
+      "cache_key": ["candidate_hash", "assertions_hash", "key_column"]
+    }
+  },
+  "composition": {
+    "role": "gold_set_scorer",
+    "position": "before_assess",
+    "canonical_chain": [
+      "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json > benchmark.json",
+      "assess benchmark.json <other-artifacts> --policy <policy.yaml> --json > decision.json",
+      "pack seal benchmark.json decision.json --output evidence/"
+    ],
+    "agent_rules": [
+      "Use benchmark to produce quality evidence, not policy decisions.",
+      "Pass benchmark.v0 reports to assess when policy rules depend on quality_band.",
+      "Use --lock when the candidate should be tied to a prior vacuum/hash/lock pipeline."
+    ]
+  }
+}

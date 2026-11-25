@@ -56,6 +56,12 @@ pub struct Cli {
     )]
     pub robot_triage: bool,
 
+    #[arg(
+        long,
+        help = "Print the operator manifest (same document as `capabilities --json`) and exit"
+    )]
+    pub describe: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }

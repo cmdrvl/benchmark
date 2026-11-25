@@ -312,6 +312,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "spine-rules",
  "thiserror 2.0.18",
 ]
 
@@ -1922,6 +1923,16 @@ checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "spine-rules"
+version = "0.3.0"
+source = "git+https://github.com/cmdrvl/spine-rules#b2a81493b204201143171586499979311372fbe9"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

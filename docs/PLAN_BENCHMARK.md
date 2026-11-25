@@ -522,6 +522,10 @@ Total implementation estimate: ~400-700 LOC of Rust.
 
 Same candidate + same assertions = same report. `benchmark` should use deterministic load/join/projection patterns and include the candidate and assertion hashes in the report.
 
+## Operator contract
+
+`operator.json` (repo root, `schema_version: "operator.v1"`) is the executable documentation of the CLI surface. `benchmark --describe` and `benchmark capabilities --json` print it verbatim. It is held to the spine-rules `operator.v1` validator, to the Cargo package version, and to the set of `E_*` refusal codes in source by `tests/operator_manifest.rs`. When a flag, subcommand, exit code or refusal code changes, change `operator.json` in the same commit; this plan describes intent, the manifest describes what ships.
+
 ## Staged implementation sequence
 
 ### Stage D1 — CLI and refusal envelope

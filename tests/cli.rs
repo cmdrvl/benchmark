@@ -29,6 +29,7 @@ fn fixture_cli(candidate: &str, assertions: &str, lockfiles: &[&str], json: bool
         json,
         render: None,
         robot_triage: false,
+        describe: false,
         command: None,
     }
 }
@@ -180,9 +181,10 @@ fn bench_u_json_only_returns_capabilities_contract() -> Result<(), Box<dyn std::
     assert_eq!(execution.outcome, Outcome::Pass);
     assert_eq!(execution.exit_code(), 0);
     let payload: serde_json::Value = serde_json::from_str(&execution.stdout)?;
-    assert_eq!(payload["schema"], "benchmark.doctor.capabilities.v1");
+    assert_eq!(payload["schema_version"], "operator.v1");
+    assert_eq!(payload["name"], "benchmark");
     assert_eq!(
-        payload["agent_entrypoints"][0]["usage"],
+        payload["capabilities"]["agent_surfaces"]["robot_triage"],
         "benchmark --robot-triage"
     );
     assert_eq!(payload["composition"]["role"], "gold_set_scorer");
@@ -208,10 +210,10 @@ fn bench_u_top_level_capabilities_and_robot_docs_aliases_work()
     let capabilities = execute(Cli::parse_from(["benchmark", "capabilities", "--json"]))?;
     assert_eq!(capabilities.exit_code(), 0);
     let payload: serde_json::Value = serde_json::from_str(&capabilities.stdout)?;
-    assert_eq!(payload["schema"], "benchmark.doctor.capabilities.v1");
+    assert_eq!(payload["schema_version"], "operator.v1");
     assert_eq!(
-        payload["commands"][0]["usage"],
-        "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json"
+        payload["invocation"]["usage"][0],
+        "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>]"
     );
 
     let docs = execute(Cli::parse_from(["benchmark", "robot-docs", "guide"]))?;
@@ -358,6 +360,7 @@ fn bench_u_execute_returns_summary_fail_with_exit_1() -> Result<(), Box<dyn std:
         json: false,
         render: Some(benchmark::cli::SummaryRenderMode::Summary),
         robot_triage: false,
+        describe: false,
         command: None,
     })?;
 

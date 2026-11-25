@@ -2,7 +2,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use thiserror::Error;
 
-use crate::{REPORT_VERSION, TOOL, cli::BenchmarkCommand, render::RenderMode};
+use crate::{REPORT_VERSION, TOOL, render::RenderMode};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RefusalEnvelope {
@@ -104,24 +104,6 @@ impl RefusalEnvelope {
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| "-".to_owned())
     }
-}
-
-pub fn scaffold_only(command: &BenchmarkCommand) -> RefusalEnvelope {
-    RefusalEnvelope::new(
-        "E_NOT_IMPLEMENTED",
-        "benchmark is scaffolded but scoring is not implemented yet.",
-        json!({
-            "candidate": command.candidate.display().to_string(),
-            "assertions": command.assertions.display().to_string(),
-            "key": command.key,
-            "lockfiles": command
-                .lockfiles
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect::<Vec<_>>()
-        }),
-        Some("br ready".to_owned()),
-    )
 }
 
 fn sanitize_tsv(value: String) -> String {

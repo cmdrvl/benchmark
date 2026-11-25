@@ -3,6 +3,17 @@
 pub const TOOL: &str = "benchmark";
 pub const REPORT_VERSION: &str = "benchmark.v0";
 
+/// benchmark's operator.v1 manifest. `--describe` and `capabilities --json`
+/// both print exactly this document.
+pub const OPERATOR_JSON: &str = include_str!("../operator.json");
+
+/// The operator manifest as printed on stdout (single trailing newline).
+pub fn describe_output() -> String {
+    let mut out = OPERATOR_JSON.trim_end().to_owned();
+    out.push('\n');
+    out
+}
+
 pub mod assertions;
 pub mod candidate;
 pub mod cli;
@@ -63,6 +74,13 @@ impl Execution {
 }
 
 pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
+    if cli.describe {
+        if has_scoring_args(&cli) || cli.command.is_some() || cli.robot_triage {
+            return Err("`benchmark --describe` does not accept other arguments".into());
+        }
+        return Ok(Execution::new(Outcome::Pass, describe_output()));
+    }
+
     if cli.robot_triage {
         if has_scoring_args(&cli) {
             return Err(
@@ -90,13 +108,19 @@ pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
 
         return match command {
             Command::Doctor(doctor) => Ok(doctor::execute(doctor, cli.json)),
-            Command::Capabilities => Ok(doctor::execute(
-                DoctorArgs {
-                    robot_triage: false,
-                    command: Some(DoctorCommand::Capabilities),
-                },
-                cli.json,
-            )),
+            Command::Capabilities => {
+                if cli.json {
+                    Ok(Execution::new(Outcome::Pass, describe_output()))
+                } else {
+                    Ok(doctor::execute(
+                        DoctorArgs {
+                            robot_triage: false,
+                            command: Some(DoctorCommand::Capabilities),
+                        },
+                        false,
+                    ))
+                }
+            }
             Command::RobotDocs(args) => {
                 let command = args.command.unwrap_or(RobotDocsCommand::Guide);
                 match command {
@@ -118,13 +142,7 @@ pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
         && cli.lock.is_empty()
     {
         if cli.json {
-            return Ok(doctor::execute(
-                DoctorArgs {
-                    robot_triage: false,
-                    command: Some(DoctorCommand::Capabilities),
-                },
-                true,
-            ));
+            return Ok(Execution::new(Outcome::Pass, describe_output()));
         }
 
         return Ok(Execution::new(Outcome::Pass, long_help()));
