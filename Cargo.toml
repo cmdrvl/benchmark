@@ -42,8 +42,4 @@ strip = true
 
 [dev-dependencies]
 jsonschema = { version = "0.30", default-features = false }
-spine-rules = {
-    git = "https://github.com/cmdrvl/spine-rules",
-    rev = "f96638f7c65597d658182253350f1320002976e3",
-    version = "=0.3.1",
-}
+spine-rules = { git = "https://github.com/cmdrvl/spine-rules", rev = "f96638f7c65597d658182253350f1320002976e3", version = "=0.3.1" }
