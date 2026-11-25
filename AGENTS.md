@@ -501,7 +501,7 @@ Current repo reality:
 - CI workflow exists at `.github/workflows/ci.yml`
 - release workflow exists at `.github/workflows/release.yml`
 - Homebrew tap update is part of the release workflow
-- `cmdrvl/tap/cmdrvl-benchmark` is the Homebrew formula
+- `cmdrvl/tap/cmdrvl-benchmark` is the Homebrew formula; it installs the `benchmark` executable (the release workflow checks this against Cargo.toml and the tap)
 
 Do not add README badges or install claims until they are real.
 

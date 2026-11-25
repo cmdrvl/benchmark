@@ -6,6 +6,21 @@
 
 **Gold-set scoring for extraction pipelines.**
 
+## Install
+
+| What | Name |
+|------|------|
+| Homebrew formula | `cmdrvl/tap/cmdrvl-benchmark` (alias `cmdrvl/tap/benchmark` also works) |
+| Installed executable | `benchmark` |
+| Cargo package / binary | `benchmark` |
+
+```bash
+brew install cmdrvl/tap/cmdrvl-benchmark
+benchmark --version
+```
+
+The formula is called `cmdrvl-benchmark`; the command it puts on your `PATH` is `benchmark`. There is no `cmdrvl-benchmark` executable. To build from source instead, see [Build from source](#build-from-source) below (`cargo run -- ...` runs the same `benchmark` binary).
+
 `benchmark` is the epistemic spine tool for checking a row-oriented candidate dataset against a human-validated assertion set. It answers a narrow but important question:
 
 **Did this extraction produce the facts we expected, and if not, are the misses wrong values or missing values?**
@@ -15,19 +30,17 @@ Current status:
 - repository status: implemented Rust crate with validated benchmark v0 command path
 - source of truth: [docs/PLAN_BENCHMARK.md](./docs/PLAN_BENCHMARK.md)
 - current repo contents: plan + Beads execution graph + working Rust crate + fixture and perf corpus
-- release status: `v0.3.0` is published and available via the `cmdrvl-benchmark` Homebrew tap formula
+- release status: `v0.3.0` is published and available via the `cmdrvl/tap/cmdrvl-benchmark` Homebrew formula (installs the `benchmark` command)
 
 The examples below describe the implemented `v0` contract. The crate is runnable locally, CI and release automation now live in-repo, and the current release binary already follows the same contract.
 
 ---
 
-## Current quickstart
+## Build from source
 
-The current quickstart is for contributors and local operators:
+For contributors and local operators (install the released binary with the [Install](#install) section instead if you only want to run it):
 
 ```bash
-brew install cmdrvl/tap/cmdrvl-benchmark
-
 cd benchmark
 cargo run -- --help
 sed -n '1,260p' docs/PLAN_BENCHMARK.md

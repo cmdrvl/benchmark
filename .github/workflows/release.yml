@@ -199,6 +199,29 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Check binary name matches Cargo.toml and the Homebrew tap formula
+        run: |
+          set -euo pipefail
+          bin_name=$(python3 -c "import tomllib; d = tomllib.load(open('Cargo.toml', 'rb')); print(d['bin'][0]['name'])")
+          if [ "$bin_name" != "benchmark" ]; then
+            echo "Cargo.toml [[bin]] name is '$bin_name', expected 'benchmark'" >&2
+            exit 1
+          fi
+          for archive in dist/benchmark-*.tar.gz; do
+            members=$(tar -tzf "$archive" | sed 's|^\./||' | grep -v '^$' | grep -v '/$' | sort)
+            if [ "$members" != "$bin_name" ]; then
+              echo "$archive contains '$members', expected only '$bin_name'" >&2
+              exit 1
+            fi
+          done
+          formula=$(curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/cmdrvl/homebrew-tap/main/Formula/cmdrvl-benchmark.rb)
+          if ! printf '%s\n' "$formula" | grep -Fxq "    bin.install \"$bin_name\""; then
+            echo "homebrew-tap Formula/cmdrvl-benchmark.rb does not 'bin.install \"$bin_name\"'" >&2
+            exit 1
+          fi
+          echo "OK: formula cmdrvl-benchmark installs binary '$bin_name' (archives and Cargo.toml agree)"
+
       - name: Generate SHA256SUMS
         run: |
           cd dist
