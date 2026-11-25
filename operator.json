@@ -37,7 +37,7 @@
     { "name": "assertions", "flag": "--assertions", "type": "file_path", "required": true, "description": "Human-validated assertion file (JSONL). Frozen input: the cache key is (candidate bytes, assertion bytes, key columns/profile)." },
     { "name": "key", "flag": "--key", "type": "string", "description": "One key column or a comma-separated composite key used to look up each assertion entity; conflicts with --profile" },
     { "name": "profile", "flag": "--profile", "type": "file_path", "description": "Frozen JSON profile containing a key or key_columns string array; conflicts with --key" },
-    { "name": "explicit", "flag": "--explicit", "type": "flag", "description": "Opt in to raw expected and actual cell values in failure output; default reports emit opaque sha256 hashes" },
+    { "name": "explicit", "flag": "--explicit", "type": "flag", "description": "Opt in to raw expected and actual cell values; default reports emit deterministic ordinal refs or keyed HMAC markers" },
     { "name": "lock", "flag": "--lock", "type": "file_path", "repeatable": true, "description": "Verify the candidate is a member of these lock.v0 lockfiles before scoring; supports sha256: and blake3: bytes_hash values" },
     { "name": "json", "flag": "--json", "type": "flag", "description": "Emit the machine-readable benchmark.v0 JSON report" },
     { "name": "render", "flag": "--render", "type": "enum", "values": ["summary", "summary-tsv"], "description": "Emit a one-line summary or a TSV header and row instead of the full report (conflicts with --json)" },
@@ -88,7 +88,8 @@
     { "code": "E_INPUT_NOT_LOCKED", "message": "Candidate is not present in the supplied lockfiles", "action": "pass the correct --lock or lock the candidate first", "flag": "--lock" },
     { "code": "E_INPUT_DRIFT", "message": "Candidate hash does not match the lock member", "action": "use the locked file or regenerate the lock", "flag": "--lock" },
     { "code": "E_UNSUPPORTED_HASH_ALGORITHM", "message": "Lock member uses an unsupported bytes_hash algorithm prefix", "action": "regenerate the lock with sha256 or blake3", "flag": "--lock" },
-    { "code": "E_PROFILE_INVALID", "message": "Profile is unreadable, malformed, or does not define a valid key array", "action": "fix the profile or use --key" }
+    { "code": "E_PROFILE_INVALID", "message": "Profile is unreadable, malformed, or does not define a valid key array", "action": "fix the profile or use --key" },
+    { "code": "E_REDACTION_KEY_INVALID", "message": "BENCHMARK_REDACTION_KEY is not valid UTF-8 or is shorter than 16 bytes", "action": "set a key of at least 16 bytes or unset it" }
   ],
   "env_vars": [
     { "name": "EPISTEMIC_WITNESS", "description": "Witness ledger path; overrides ~/.cmdrvl/state/witness/witness.jsonl" },
@@ -97,6 +98,7 @@
     { "name": "NO_COLOR", "description": "Disable ANSI status styling" },
     { "name": "TERM", "description": "TERM=dumb disables ANSI status styling" },
     { "name": "CLICOLOR_FORCE", "description": "Force ANSI status styling when NO_COLOR and TERM=dumb do not disable it" },
+    { "name": "BENCHMARK_REDACTION_KEY", "description": "Optional operator-held HMAC-SHA256 key for redacted failure markers; must be at least 16 bytes and is never emitted" },
     { "name": "BENCHMARK_DOCTOR_FORCE_UNHEALTHY", "description": "Test fixture: make doctor report an error finding and exit 1" }
   ],
   "formats": ["csv", "json", "jsonl", "parquet"],

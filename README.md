@@ -248,8 +248,8 @@ Current JSON shape:
       "field": "u8:adj_location",
       "expected": null,
       "actual": null,
-      "expected_hash": "sha256:<64 lowercase hex digits>",
-      "actual_hash": "sha256:<64 lowercase hex digits>",
+      "expected_hash": "v1",
+      "actual_hash": "v2",
       "compare_as": "percent",
       "tolerance": 0.01,
       "severity": "major",
@@ -268,9 +268,15 @@ Current JSON shape:
 }
 ```
 
-Failure `expected` and `actual` values are redacted by default; their deterministic opaque
-SHA-256 hashes remain for correlation. Add `--explicit` when a trusted operator needs the raw
-cell values. The policy signal is intentionally coarse and fully derived from the raw score:
+Failure `expected` and `actual` values are redacted by default. The string-typed
+`expected_hash` and `actual_hash` fields retain their shape but now carry deterministic ordinal
+refs (`v1`, `v2`, ...) in one namespace across emitted failures. Equal canonical cell values share
+a ref; refs reveal only equality patterns and the number of distinct emitted values, not content,
+and are not comparable across different inputs. Set `BENCHMARK_REDACTION_KEY` to a key of at
+least 16 bytes for stable `hmac-sha256:<32 hex>` markers. An empty or short key is a typed
+`E_REDACTION_KEY_INVALID` refusal. Add `--explicit` when a trusted operator needs the raw cell
+values; explicit mode remains unchanged. The key is never emitted in reports, errors, witness
+records, or doctor output. The policy signal is intentionally coarse and fully derived from the raw score:
 
 - `HIGH` = no failures and no skips
 - `ACCEPTABLE` = no failures but one or more skips
@@ -292,7 +298,7 @@ quality_band: LOW (assertion_failures_present)
 accuracy: 0.995
 coverage: 0.995
 
-FAIL comp_3 u8:adj_location expected_hash=sha256:<64 lowercase hex digits> actual_hash=sha256:<64 lowercase hex digits> compare_as=percent tolerance=0.01
+FAIL comp_3 u8:adj_location expected_hash=v1 actual_hash=v2 compare_as=percent tolerance=0.01
 SKIP comp_7 u8:cap_rate reason=SKIP_ENTITY
 ```
 

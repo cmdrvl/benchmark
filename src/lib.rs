@@ -5,6 +5,7 @@ use std::{collections::HashSet, fs, path::PathBuf};
 pub const TOOL: &str = "benchmark";
 pub const REPORT_VERSION: &str = "benchmark.v0";
 pub const E_PROFILE_INVALID: &str = "E_PROFILE_INVALID";
+pub const E_REDACTION_KEY_INVALID: &str = "E_REDACTION_KEY_INVALID";
 
 /// benchmark's operator.v1 manifest. `--describe` and `capabilities --json`
 /// both print exactly this document.
@@ -42,6 +43,7 @@ use engine::EngineError;
 use key_check::KeyCheckError;
 use lock_check::{LockCheckError, verify_candidate};
 use refusal::RefusalEnvelope;
+use report::RedactionMode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use thiserror::Error;
@@ -206,6 +208,7 @@ fn long_help() -> String {
 fn execute_command(
     command: &BenchmarkCommand,
 ) -> Result<report::BenchmarkReport, Box<RefusalEnvelope>> {
+    let redaction_mode = resolve_redaction_mode(command)?;
     let key_columns = resolve_key_columns(command)
         .map_err(|error| Box::new(refusal_from_profile_error(command, &error)))?;
     let assertions = assertions::load_assertions(&command.assertions)
@@ -225,15 +228,55 @@ fn execute_command(
     let key_check = key_check::validate_keys(&candidate, key_columns)
         .map_err(|error| Box::new(refusal_from_key_check_error(command, &error)))?;
 
-    engine::score_candidate_with_explicit(
+    engine::score_candidate_with_redaction(
         &candidate,
         &command.assertions,
         &assertions,
         &key_check,
         input_verification,
-        command.explicit,
+        redaction_mode,
     )
     .map_err(|error| Box::new(refusal_from_engine_error(command, &error)))
+}
+
+fn resolve_redaction_mode(
+    command: &BenchmarkCommand,
+) -> Result<RedactionMode, Box<RefusalEnvelope>> {
+    let configured_key = match std::env::var("BENCHMARK_REDACTION_KEY") {
+        Ok(key) => Some(key),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(Box::new(refusal_from_parts(
+                command,
+                E_REDACTION_KEY_INVALID,
+                "BENCHMARK_REDACTION_KEY must be valid UTF-8 and at least 16 bytes".to_owned(),
+                json!({}),
+            )));
+        }
+    };
+
+    let key = configured_key.map(String::into_bytes);
+    let key = match key {
+        Some(key) if key.len() < 16 => {
+            return Err(Box::new(refusal_from_parts(
+                command,
+                E_REDACTION_KEY_INVALID,
+                "BENCHMARK_REDACTION_KEY must be at least 16 bytes".to_owned(),
+                json!({}),
+            )));
+        }
+        Some(key) => Some(key),
+        None => None,
+    };
+
+    if command.explicit {
+        Ok(RedactionMode::explicit())
+    } else {
+        Ok(match key {
+            Some(key) => RedactionMode::keyed(key),
+            None => RedactionMode::ordinal(),
+        })
+    }
 }
 
 impl From<report::ReportOutcome> for Outcome {

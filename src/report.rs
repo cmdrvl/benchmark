@@ -1,9 +1,79 @@
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 
 use crate::{
     REPORT_VERSION, TOOL, assertions::Severity, compare::CompareAs, lock_check::InputVerification,
 };
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// Redaction mode for one benchmark report.
+pub enum RedactionMode {
+    Explicit,
+    Ordinal,
+    Keyed(Vec<u8>),
+}
+
+impl RedactionMode {
+    pub fn explicit() -> Self {
+        Self::Explicit
+    }
+
+    pub fn ordinal() -> Self {
+        Self::Ordinal
+    }
+
+    pub fn keyed(key: Vec<u8>) -> Self {
+        Self::Keyed(key)
+    }
+
+    fn is_explicit(&self) -> bool {
+        matches!(self, Self::Explicit)
+    }
+}
+
+struct Redactor {
+    mode: RedactionMode,
+    ordinals: BTreeMap<String, String>,
+    next_ordinal: usize,
+}
+
+impl Redactor {
+    fn new(mode: RedactionMode) -> Self {
+        Self {
+            mode,
+            ordinals: BTreeMap::new(),
+            next_ordinal: 1,
+        }
+    }
+
+    fn marker(&mut self, value: &str) -> String {
+        match &self.mode {
+            RedactionMode::Explicit => hash_cell(value),
+            RedactionMode::Ordinal => {
+                let canonical = canonical_cell(value);
+                match self.ordinals.get(&canonical) {
+                    Some(reference) => reference.clone(),
+                    None => {
+                        let reference = format!("v{}", self.next_ordinal);
+                        self.next_ordinal += 1;
+                        self.ordinals.insert(canonical, reference.clone());
+                        reference
+                    }
+                }
+            }
+            RedactionMode::Keyed(key) => {
+                let mut mac = HmacSha256::new_from_slice(key)
+                    .expect("HMAC-SHA256 accepts keys of any non-empty length");
+                mac.update(canonical_cell(value).as_bytes());
+                let digest = mac.finalize().into_bytes();
+                format!("hmac-sha256:{}", hex_lower(&digest[..16]))
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -67,6 +137,20 @@ impl BenchmarkReport {
         evaluated: Vec<EvaluatedAssertion>,
         explicit: bool,
     ) -> Self {
+        let mode = if explicit {
+            RedactionMode::explicit()
+        } else {
+            RedactionMode::ordinal()
+        };
+        Self::from_evaluated_with_redaction(context, evaluated, mode)
+    }
+
+    pub fn from_evaluated_with_redaction(
+        context: ReportContext,
+        evaluated: Vec<EvaluatedAssertion>,
+        mode: RedactionMode,
+    ) -> Self {
+        let explicit = mode.is_explicit();
         let summary = Summary::from_evaluated(&evaluated);
         let outcome = if summary.failed == 0 && summary.skipped == 0 {
             ReportOutcome::Pass
@@ -74,9 +158,10 @@ impl BenchmarkReport {
             ReportOutcome::Fail
         };
 
+        let mut redactor = Redactor::new(mode);
         let failures = evaluated
             .iter()
-            .filter_map(|assertion| assertion.failure_record(explicit))
+            .filter_map(|assertion| assertion.failure_record(explicit, &mut redactor))
             .collect();
         let skipped = evaluated
             .iter()
@@ -265,7 +350,7 @@ pub struct EvaluatedAssertion {
 }
 
 impl EvaluatedAssertion {
-    fn failure_record(&self, explicit: bool) -> Option<FailureRecord> {
+    fn failure_record(&self, explicit: bool, redactor: &mut Redactor) -> Option<FailureRecord> {
         if self.outcome != AssertionOutcome::Fail {
             return None;
         }
@@ -275,8 +360,8 @@ impl EvaluatedAssertion {
             field: self.field.clone(),
             expected: explicit.then(|| self.expected.clone()),
             actual: explicit.then(|| self.actual.clone()).flatten(),
-            expected_hash: hash_cell(&self.expected),
-            actual_hash: self.actual.as_deref().map(hash_cell),
+            expected_hash: redactor.marker(&self.expected),
+            actual_hash: self.actual.as_deref().map(|actual| redactor.marker(actual)),
             compare_as: self.compare_as,
             tolerance: self.tolerance.clone(),
             severity: self.severity,
@@ -318,6 +403,14 @@ fn hash_cell(value: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value.as_bytes());
     format!("sha256:{:x}", hasher.finalize())
+}
+
+fn canonical_cell(value: &str) -> String {
+    serde_json::to_string(value).expect("cell values must be JSON serializable")
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

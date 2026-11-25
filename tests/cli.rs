@@ -17,6 +17,7 @@ use benchmark::{
 };
 use clap::CommandFactory;
 use clap::Parser;
+use sha2::{Digest, Sha256};
 
 fn fixture(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
@@ -73,6 +74,109 @@ fn sample_report(outcome: AssertionOutcome) -> BenchmarkReport {
 static COMPOSITE_CASE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn bench_p1_redaction_ordinal_and_keyed_markers_are_safe_and_stable()
+-> Result<(), Box<dyn std::error::Error>> {
+    let id = COMPOSITE_CASE.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!("benchmark-redaction-{id}"));
+    fs::create_dir(&root)?;
+    let candidate = root.join("candidate.csv");
+    let assertions = root.join("assertions.jsonl");
+    let witness = root.join("witness.jsonl");
+    fs::write(
+        &candidate,
+        "comp_id,actual\ncomp_1,ACTUAL_CANARY\ncomp_2,ACTUAL_CANARY\ncomp_3,OTHER_ACTUAL\n",
+    )?;
+    fs::write(
+        &assertions,
+        "{\"entity\":\"comp_1\",\"field\":\"actual\",\"expected\":\"EXPECTED_CANARY\"}\n\
+         {\"entity\":\"comp_2\",\"field\":\"actual\",\"expected\":\"EXPECTED_CANARY\"}\n\
+         {\"entity\":\"comp_3\",\"field\":\"actual\",\"expected\":\"SECOND_EXPECTED\"}\n",
+    )?;
+
+    let run = |key: Option<&str>, witness_path: Option<&Path>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_benchmark"));
+        command
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .args([
+                candidate.to_str().unwrap(),
+                "--assertions",
+                assertions.to_str().unwrap(),
+                "--key",
+                "comp_id",
+                "--json",
+            ])
+            .env_remove("BENCHMARK_REDACTION_KEY");
+        if let Some(key) = key {
+            command.env("BENCHMARK_REDACTION_KEY", key);
+        }
+        if let Some(witness_path) = witness_path {
+            command.env("EPISTEMIC_WITNESS", witness_path);
+        } else {
+            command.arg("--no-witness");
+        }
+        command.output()
+    };
+
+    let default = run(None, None)?;
+    assert_eq!(default.status.code(), Some(1));
+    let default_report: serde_json::Value = serde_json::from_slice(&default.stdout)?;
+    let failures = default_report["failures"].as_array().unwrap();
+    assert_eq!(failures[0]["expected_hash"], "v1");
+    assert_eq!(failures[0]["actual_hash"], "v2");
+    assert_eq!(failures[1]["expected_hash"], "v1");
+    assert_eq!(failures[1]["actual_hash"], "v2");
+    assert_eq!(failures[2]["expected_hash"], "v3");
+    assert_eq!(failures[2]["actual_hash"], "v4");
+    assert!(!String::from_utf8_lossy(&default.stdout).contains("EXPECTED_CANARY"));
+    assert!(!String::from_utf8_lossy(&default.stdout).contains("ACTUAL_CANARY"));
+    let old_digest = format!("{:x}", Sha256::digest(b"EXPECTED_CANARY"));
+    let old_marker = format!("sha256:{old_digest}");
+    assert!(!String::from_utf8_lossy(&default.stdout).contains(&old_marker));
+    assert!(!String::from_utf8_lossy(&default.stdout).contains(&old_digest));
+    let default_again = run(None, None)?;
+    assert_eq!(default.stdout, default_again.stdout);
+
+    let key = "0123456789abcdef";
+    let keyed = run(Some(key), Some(&witness))?;
+    assert_eq!(keyed.status.code(), Some(1));
+    let keyed_text = String::from_utf8_lossy(&keyed.stdout);
+    assert!(keyed_text.contains("hmac-sha256:14811bf9b966a75975c0cd5d3bf0d2c4"));
+    assert!(!keyed_text.contains(key));
+    assert!(!keyed_text.contains("EXPECTED_CANARY"));
+    assert!(!keyed_text.contains(&old_marker));
+    assert!(!keyed_text.contains(&old_digest));
+    let witness_text = fs::read_to_string(&witness)?;
+    assert!(!witness_text.contains(key));
+    let keyed_again = run(Some(key), None)?;
+    assert_eq!(keyed.stdout, keyed_again.stdout);
+    fs::write(&candidate, "comp_id,actual\ncomp_1,DIFFERENT_ACTUAL\n")?;
+    let keyed_other_input = run(Some(key), None)?;
+    assert!(
+        String::from_utf8_lossy(&keyed_other_input.stdout)
+            .contains("hmac-sha256:14811bf9b966a75975c0cd5d3bf0d2c4")
+    );
+    let different_key = run(Some("fedcba9876543210"), None)?;
+    assert_ne!(keyed.stdout, different_key.stdout);
+
+    for short_key in ["", "123456789012345"] {
+        let refused = run(Some(short_key), None)?;
+        assert_eq!(refused.status.code(), Some(2));
+        let refusal: serde_json::Value = serde_json::from_slice(&refused.stdout)?;
+        assert_eq!(refusal["refusal"]["code"], "E_REDACTION_KEY_INVALID");
+        if !short_key.is_empty() {
+            assert!(!String::from_utf8_lossy(&refused.stdout).contains(short_key));
+            assert!(!String::from_utf8_lossy(&refused.stderr).contains(short_key));
+        }
+    }
+
+    fs::remove_file(candidate)?;
+    fs::remove_file(assertions)?;
+    fs::remove_file(witness)?;
+    fs::remove_dir(root)?;
+    Ok(())
+}
+
+#[test]
 fn bench_i_composite_profile_ascii_trim_and_default_redaction()
 -> Result<(), Box<dyn std::error::Error>> {
     let id = COMPOSITE_CASE.fetch_add(1, Ordering::Relaxed);
@@ -118,12 +222,18 @@ fn bench_i_composite_profile_ascii_trim_and_default_redaction()
     assert!(
         redacted_json["failures"][0]["expected_hash"]
             .as_str()
-            .is_some_and(|hash| hash.starts_with("sha256:"))
+            .is_some_and(|marker| marker == "v1")
     );
     assert!(
         redacted_json["failures"][0]["actual_hash"]
             .as_str()
-            .is_some_and(|hash| hash.starts_with("sha256:"))
+            .is_some_and(|marker| marker == "v2")
+    );
+    assert!(
+        !redacted_json["failures"][0]["expected_hash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
     );
     assert!(!redacted.stdout.contains("EXPECTED_CANARY"));
     assert!(!redacted.stdout.contains("ACTUAL_CANARY"));

@@ -12,7 +12,7 @@ use crate::{
     compare::{CompareAs, CompareError, compare_values},
     key_check::{KeyCheckResult, ascii_trim},
     lock_check::InputVerification,
-    report::{AssertionOutcome, BenchmarkReport, EvaluatedAssertion, ReportContext},
+    report::{AssertionOutcome, BenchmarkReport, EvaluatedAssertion, RedactionMode, ReportContext},
 };
 
 #[derive(Debug, Error)]
@@ -95,10 +95,33 @@ pub fn score_candidate_with_explicit(
     input_verification: Option<InputVerification>,
     explicit: bool,
 ) -> Result<BenchmarkReport, EngineError> {
+    let mode = if explicit {
+        RedactionMode::explicit()
+    } else {
+        RedactionMode::ordinal()
+    };
+    score_candidate_with_redaction(
+        candidate,
+        assertions_path,
+        assertions,
+        key_check,
+        input_verification,
+        mode,
+    )
+}
+
+pub fn score_candidate_with_redaction(
+    candidate: &LoadedCandidate,
+    assertions_path: impl AsRef<Path>,
+    assertions: &AssertionSet,
+    key_check: &KeyCheckResult,
+    input_verification: Option<InputVerification>,
+    redaction_mode: RedactionMode,
+) -> Result<BenchmarkReport, EngineError> {
     let assertions_path = assertions_path.as_ref();
     let evaluated = evaluate_assertions(candidate, assertions, key_check)?;
 
-    Ok(BenchmarkReport::from_evaluated_with_explicit(
+    Ok(BenchmarkReport::from_evaluated_with_redaction(
         ReportContext {
             candidate: candidate.source().path.display().to_string(),
             candidate_hash: hash_file(&candidate.source().path)?,
@@ -108,7 +131,7 @@ pub fn score_candidate_with_explicit(
             input_verification,
         },
         evaluated,
-        explicit,
+        redaction_mode,
     ))
 }
 

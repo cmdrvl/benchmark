@@ -89,6 +89,32 @@ fn doctor_health_json_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn doctor_reports_only_redaction_key_configuration() -> Result<(), Box<dyn std::error::Error>> {
+    let secret = ["PLANTED", "BENCHMARK", "KEY"].join("-");
+    let output = benchmark_cmd()
+        .args(["doctor", "--json"])
+        .env("BENCHMARK_REDACTION_KEY", &secret)
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(0));
+    let report = String::from_utf8_lossy(&output.stdout);
+    assert!(!report.contains(&secret));
+    let payload: Value = serde_json::from_slice(&output.stdout)?;
+    assert!(
+        payload["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| {
+                finding["id"] == "redaction_key_configured"
+                    && finding["message"]
+                        == "BENCHMARK_REDACTION_KEY is configured; key material is never reported"
+            })
+    );
+    Ok(())
+}
+
+#[test]
 fn unhealthy_doctor_state_returns_exit_one() -> Result<(), Box<dyn std::error::Error>> {
     let output = benchmark_cmd()
         .args(["doctor", "--json"])
@@ -99,7 +125,7 @@ fn unhealthy_doctor_state_returns_exit_one() -> Result<(), Box<dyn std::error::E
     assert!(output.stderr.is_empty());
     let payload: Value = serde_json::from_slice(&output.stdout)?;
     assert_eq!(payload["healthy"], false);
-    assert_eq!(payload["findings"].as_array().map(Vec::len), Some(14));
+    assert_eq!(payload["findings"].as_array().map(Vec::len), Some(15));
     assert!(payload["findings"].as_array().is_some_and(|findings| {
         findings.iter().any(|finding| {
             finding["id"] == "test_forced_unhealthy" && finding["severity"] == "error"

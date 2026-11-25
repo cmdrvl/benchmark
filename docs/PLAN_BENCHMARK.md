@@ -287,8 +287,8 @@ This is deliberately coarse. Tournament ranking still uses raw `summary.accuracy
       "field": "u8:adj_location",
       "expected": null,
       "actual": null,
-      "expected_hash": "sha256:<64 lowercase hex digits>",
-      "actual_hash": "sha256:<64 lowercase hex digits>",
+      "expected_hash": "v1",
+      "actual_hash": "v2",
       "compare_as": "percent",
       "tolerance": 0.01,
       "severity": "major",
@@ -340,13 +340,19 @@ quality_band: LOW (assertion_failures_present)
 accuracy: 0.995
 coverage: 0.995
 
-FAIL comp_3 u8:adj_location expected_hash=sha256:<64 lowercase hex digits> actual_hash=sha256:<64 lowercase hex digits> compare_as=percent tolerance=0.01
+FAIL comp_3 u8:adj_location expected_hash=v1 actual_hash=v2 compare_as=percent tolerance=0.01
 SKIP comp_7 u8:cap_rate reason=SKIP_ENTITY
 ```
 
 Human mode is a rendering of the same report contract, not a separate semantics path.
-Failure cell values are redacted by default; the human renderer shows their deterministic
-opaque hashes. `--explicit` opts into raw `expected` and `actual` values.
+Failure cell values are redacted by default. The string-typed `expected_hash` and `actual_hash`
+fields retain their shape but now carry deterministic ordinal refs (`v1`, `v2`, ...) in one
+namespace across emitted failures. Equal canonical cell values share a ref; refs reveal only the
+equality pattern and distinct-value count, not content, and are not comparable across different
+inputs. `BENCHMARK_REDACTION_KEY` (at least 16 bytes) switches those strings to stable
+`hmac-sha256:<32 hex>` markers. Empty or short keys refuse with `E_REDACTION_KEY_INVALID`.
+`--explicit` opts into raw `expected` and `actual` values and otherwise remains unchanged; the
+redaction key is never emitted in reports, errors, witness records, or doctor output.
 
 ---
 

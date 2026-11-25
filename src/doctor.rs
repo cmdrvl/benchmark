@@ -260,6 +260,15 @@ fn health_checks() -> Vec<Value> {
             "benchmark manages no config or cache paths; its only state path is the witness ledger",
         ),
         check(
+            "redaction_key_configured",
+            true,
+            if std::env::var_os("BENCHMARK_REDACTION_KEY").is_some() {
+                "BENCHMARK_REDACTION_KEY is configured; key material is never reported"
+            } else {
+                "BENCHMARK_REDACTION_KEY is not configured"
+            },
+        ),
+        check(
             "test_forced_unhealthy",
             std::env::var_os(FORCE_UNHEALTHY_ENV).is_none(),
             "test fixture can force an unhealthy doctor report",
@@ -391,6 +400,11 @@ scoring:\n\
   benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --render summary\n\
   benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --lock <LOCKFILE> --json\n\
   add --no-witness to keep a run out of the ambient witness ledger\n\
+redaction:\n\
+  default failure markers are deterministic ordinal refs v1, v2, ... over emitted failures only\n\
+  refs reveal equality patterns and distinct-value count, not cell content, and are not comparable across different inputs\n\
+  set BENCHMARK_REDACTION_KEY to a key of at least 16 bytes for stable HMAC-SHA256 markers; the key is never emitted\n\
+  add --explicit for raw expected and actual failure cells\n\
 witness:\n\
   benchmark witness query --json\n\
   benchmark witness last --json\n\
