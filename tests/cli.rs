@@ -28,6 +28,7 @@ fn fixture_cli(candidate: &str, assertions: &str, lockfiles: &[&str], json: bool
         candidate: Some(fixture(candidate)),
         assertions: Some(fixture(assertions)),
         key: Some("comp_id".to_owned()),
+        sheet: None,
         profile: None,
         explicit: true,
         lock: lockfiles.iter().map(|path| fixture(path)).collect(),
@@ -200,6 +201,7 @@ fn bench_i_composite_profile_ascii_trim_and_default_redaction()
             candidate: Some(candidate.clone()),
             assertions: Some(assertions.clone()),
             key: None,
+            sheet: None,
             profile: Some(profile.clone()),
             explicit,
             lock: Vec::new(),
@@ -247,6 +249,112 @@ fn bench_i_composite_profile_ascii_trim_and_default_redaction()
     fs::remove_file(assertions)?;
     fs::remove_file(profile)?;
     fs::remove_dir(root)?;
+    Ok(())
+}
+
+#[test]
+fn bench_p1_xlsx_matches_csv_and_requires_a_sheet_selector()
+-> Result<(), Box<dyn std::error::Error>> {
+    let xlsx = fixture("tests/fixtures/candidates/smoke/bench_xlsx_candidate.xlsx");
+    let csv = fixture("tests/fixtures/candidates/smoke/bench_xlsx_candidate.csv");
+    let assertions = fixture("tests/fixtures/assertions/smoke/bench_xlsx_gold.jsonl");
+
+    let run = |candidate: PathBuf,
+               sheet: Option<&str>|
+     -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let execution = execute(Cli {
+            candidate: Some(candidate),
+            assertions: Some(assertions.clone()),
+            key: Some("id".to_owned()),
+            sheet: sheet.map(str::to_owned),
+            profile: None,
+            explicit: false,
+            lock: Vec::new(),
+            json: true,
+            render: None,
+            robot_triage: false,
+            describe: false,
+            schema: false,
+            no_witness: true,
+            command: None,
+        })?;
+        assert_eq!(execution.outcome, Outcome::Pass, "{}", execution.stdout);
+        Ok(serde_json::from_str(&execution.stdout)?)
+    };
+
+    let missing_sheet = execute(Cli {
+        candidate: Some(xlsx.clone()),
+        assertions: Some(assertions.clone()),
+        key: Some("id".to_owned()),
+        sheet: None,
+        profile: None,
+        explicit: false,
+        lock: Vec::new(),
+        json: true,
+        render: None,
+        robot_triage: false,
+        describe: false,
+        schema: false,
+        no_witness: true,
+        command: None,
+    })?;
+    assert_eq!(missing_sheet.outcome, Outcome::Refusal);
+    let missing_sheet_json: serde_json::Value = serde_json::from_str(&missing_sheet.stdout)?;
+    assert_eq!(missing_sheet_json["refusal"]["code"], "E_FORMAT_DETECT");
+    let ambiguous_sheet_code = ["E", "AMBIGUOUS_SHEET"].join("_");
+    assert!(
+        missing_sheet_json["refusal"]["detail"]["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains(&ambiguous_sheet_code))
+    );
+    assert!(
+        missing_sheet_json["refusal"]["next_command"]
+            .as_str()
+            .is_some_and(|command| command.contains("--sheet"))
+    );
+
+    let csv_report = run(csv, None)?;
+    let xlsx_report = run(xlsx.clone(), Some("loans"))?;
+    let xlsx_index_report = run(xlsx.clone(), Some("0"))?;
+    for report in [&xlsx_report, &xlsx_index_report] {
+        for field in [
+            "total", "passed", "failed", "skipped", "accuracy", "coverage",
+        ] {
+            assert_eq!(
+                report["summary"][field], csv_report["summary"][field],
+                "{field}"
+            );
+        }
+        assert_eq!(report["policy_signals"]["quality_band"], "HIGH");
+    }
+    assert_eq!(xlsx_report["summary"], csv_report["summary"]);
+    assert_eq!(xlsx_index_report["summary"], csv_report["summary"]);
+
+    let unknown_sheet = execute(Cli {
+        candidate: Some(xlsx),
+        assertions: Some(assertions),
+        key: Some("id".to_owned()),
+        sheet: Some("does-not-exist".to_owned()),
+        profile: None,
+        explicit: false,
+        lock: Vec::new(),
+        json: true,
+        render: None,
+        robot_triage: false,
+        describe: false,
+        schema: false,
+        no_witness: true,
+        command: None,
+    })?;
+    assert_eq!(unknown_sheet.outcome, Outcome::Refusal);
+    let unknown_sheet_json: serde_json::Value = serde_json::from_str(&unknown_sheet.stdout)?;
+    assert_eq!(unknown_sheet_json["refusal"]["code"], "E_FORMAT_DETECT");
+    let sheet_not_found_code = ["E", "SHEET_NOT_FOUND"].join("_");
+    assert!(
+        unknown_sheet_json["refusal"]["detail"]["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains(&sheet_not_found_code))
+    );
     Ok(())
 }
 
@@ -402,7 +510,7 @@ fn bench_u_top_level_capabilities_and_robot_docs_aliases_work()
     assert_eq!(payload["schema_version"], "operator.v1");
     assert_eq!(
         payload["invocation"]["usage"][0],
-        "benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>] [--explicit]"
+        "benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) [--sheet <NAME|INDEX>] [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>] [--explicit]"
     );
 
     let docs = execute(Cli::parse_from(["benchmark", "robot-docs", "guide"]))?;
@@ -545,6 +653,7 @@ fn bench_u_execute_returns_summary_fail_with_exit_1() -> Result<(), Box<dyn std:
             "tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl",
         )),
         key: Some("comp_id".to_owned()),
+        sheet: None,
         profile: None,
         explicit: true,
         lock: Vec::new(),

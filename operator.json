@@ -3,14 +3,14 @@
   "name": "benchmark",
   "tool_version": "0.3.0",
   "contract_version": "1.0.0",
-  "description": "Gold-set scoring for row-oriented extraction pipelines. Scores one row-oriented candidate relation (CSV, JSON, JSONL or Parquet) against a human-validated JSONL assertion set and emits a deterministic benchmark.v0 score report with a derived quality band for downstream policy.",
+  "description": "Gold-set scoring for row-oriented extraction pipelines. Scores one row-oriented candidate relation (CSV, JSON, JSONL, Parquet, XLSX, XLS or XLSM) against a human-validated JSONL assertion set and emits a deterministic benchmark.v0 score report with a derived quality band for downstream policy.",
   "repository": "https://github.com/cmdrvl/benchmark",
   "license": "MIT",
   "agent_guide": "https://github.com/cmdrvl/.github/blob/main/profile/AGENT_PROMPT.md",
   "invocation": {
     "binary": "benchmark",
     "usage": [
-      "benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>] [--explicit]",
+      "benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) [--sheet <NAME|INDEX>] [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>] [--explicit]",
       "benchmark --describe",
       "benchmark --schema",
       "benchmark --robot-triage",
@@ -30,12 +30,13 @@
       "type": "file_path",
       "position": 0,
       "required": true,
-      "description": "Candidate relation to score (CSV, JSON, JSONL or Parquet)"
+      "description": "Candidate relation to score (CSV, JSON, JSONL, Parquet, XLSX, XLS or XLSM)"
     }
   ],
   "options": [
-    { "name": "assertions", "flag": "--assertions", "type": "file_path", "required": true, "description": "Human-validated assertion file (JSONL). Frozen input: the cache key is (candidate bytes, assertion bytes, key columns/profile)." },
+    { "name": "assertions", "flag": "--assertions", "type": "file_path", "required": true, "description": "Human-validated assertion file (JSONL). Frozen input: the cache key is (candidate bytes, assertion bytes, key columns/profile, worksheet selector)." },
     { "name": "key", "flag": "--key", "type": "string", "description": "One key column or a comma-separated composite key used to look up each assertion entity; conflicts with --profile" },
+    { "name": "sheet", "flag": "--sheet", "type": "string", "description": "Worksheet name or zero-based index for XLSX/XLS/XLSM candidates; required when a workbook has multiple sheets" },
     { "name": "profile", "flag": "--profile", "type": "file_path", "description": "Frozen JSON profile containing a key or key_columns string array; conflicts with --key" },
     { "name": "explicit", "flag": "--explicit", "type": "flag", "description": "Opt in to raw expected and actual cell values; default reports emit deterministic ordinal refs or keyed HMAC markers" },
     { "name": "lock", "flag": "--lock", "type": "file_path", "repeatable": true, "description": "Verify the candidate is a member of these lock.v0 lockfiles before scoring; supports sha256: and blake3: bytes_hash values" },
@@ -84,7 +85,7 @@
     { "code": "E_KEY_NOT_FOUND", "message": "Candidate does not contain the requested key column", "action": "pass existing columns to --key or fix the profile" },
     { "code": "E_KEY_NOT_UNIQUE", "message": "Candidate key values are ambiguous", "action": "canonicalize the candidate or choose a unique key" },
     { "code": "E_KEY_NULL", "message": "Candidate key values include null or blank values", "action": "clean the candidate key column" },
-    { "code": "E_FORMAT_DETECT", "message": "Candidate format is unsupported or is not one row-oriented relation", "action": "supply CSV, JSON, JSONL or Parquet with one row per record" },
+    { "code": "E_FORMAT_DETECT", "message": "Candidate format is unsupported, is not one row-oriented relation, or the selected workbook sheet cannot be read", "action": "supply CSV, JSON, JSONL, Parquet, XLSX, XLS or XLSM with one row per record; pass --sheet for multi-sheet workbooks" },
     { "code": "E_INPUT_NOT_LOCKED", "message": "Candidate is not present in the supplied lockfiles", "action": "pass the correct --lock or lock the candidate first", "flag": "--lock" },
     { "code": "E_INPUT_DRIFT", "message": "Candidate hash does not match the lock member", "action": "use the locked file or regenerate the lock", "flag": "--lock" },
     { "code": "E_UNSUPPORTED_HASH_ALGORITHM", "message": "Lock member uses an unsupported bytes_hash algorithm prefix", "action": "regenerate the lock with sha256 or blake3", "flag": "--lock" },
@@ -101,7 +102,7 @@
     { "name": "BENCHMARK_REDACTION_KEY", "description": "Optional operator-held HMAC-SHA256 key for redacted failure markers; must be at least 16 bytes and is never emitted" },
     { "name": "BENCHMARK_DOCTOR_FORCE_UNHEALTHY", "description": "Test fixture: make doctor report an error finding and exit 1" }
   ],
-  "formats": ["csv", "json", "jsonl", "parquet"],
+  "formats": ["csv", "json", "jsonl", "parquet", "xlsx", "xls", "xlsm"],
   "side_effects": {
     "reads_files": true,
     "writes_files": false,
@@ -131,9 +132,9 @@
     },
     "determinism": {
       "deterministic": true,
-      "statement": "The same candidate bytes, assertion set bytes and key columns/profile always produce a byte-identical report; raw failure cells require --explicit.",
+      "statement": "The same candidate bytes, assertion set bytes, key columns/profile and worksheet selector always produce a byte-identical report; raw failure cells require --explicit.",
       "frozen_inputs": ["assertions"],
-      "cache_key": ["candidate_hash", "assertions_hash", "key_columns", "profile"]
+      "cache_key": ["candidate_hash", "assertions_hash", "key_columns", "profile", "sheet"]
     }
   },
   "composition": {

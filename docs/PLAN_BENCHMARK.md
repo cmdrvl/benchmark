@@ -70,11 +70,12 @@ These are engineering contracts, not aspirations. If any are violated, `benchmar
 benchmark <CANDIDATE> --assertions <FILE> [OPTIONS]
 
 Arguments:
-  <CANDIDATE>            File to score (CSV, JSON, JSONL, or Parquet)
+  <CANDIDATE>            File to score (CSV, JSON, JSONL, Parquet, XLSX, XLS, or XLSM)
 
 Options:
   --assertions <FILE>    Assertion file (JSONL)
   --key <COLUMN>[,<COLUMN>...]  Key column(s) for entity lookup in candidate
+  --sheet <NAME|INDEX>  Worksheet name or zero-based index for XLSX/XLS/XLSM candidates
   --profile <FILE>       Frozen JSON profile containing key or key_columns
   --explicit             Include raw expected and actual failure cells
   --lock <LOCKFILE>      Verify candidate is a member of these lockfiles (repeatable)
@@ -112,7 +113,7 @@ That means v0 candidates must materialize to a single table-like surface with:
 - scalar fields addressable by column name
 - one row per entity
 
-CSV, JSONL, Parquet, and row-shaped JSON are fine when DuckDB can materialize them this way. Nested JSON objects, arrays-of-arrays, or document-shaped blobs that do not expose a single scalar relation are out of scope for v0 and should be normalized before scoring.
+CSV, JSONL, Parquet, row-shaped JSON, and XLSX/XLS/XLSM worksheets are fine when they materialize this way. Workbook sheets are read through the shared `cmdrvl-tabular` reader; multi-sheet workbooks require `--sheet <name|index>`. Nested JSON objects, arrays-of-arrays, or document-shaped blobs that do not expose a single scalar relation are out of scope for v0 and should be normalized before scoring.
 
 ## Module skeleton (implementation target)
 
@@ -516,6 +517,7 @@ Rust binary with `duckdb-rs`. Loads the candidate and assertion JSONL into DuckD
 | JSON line parsing | `serde_json` | Line-by-line assertion JSONL parsing |
 | Decimal/date comparison helpers | custom small module | Implements `string` / `number` / `percent` / `date` semantics explicitly |
 | Content hashing | `sha2` | Assertions hash, candidate hash, input verification |
+| Workbook reading | `cmdrvl-tabular` | Deterministic XLSX/XLS/XLSM sheet selection and canonical cell text |
 
 ### Supported candidate formats (via DuckDB)
 
@@ -525,6 +527,7 @@ Rust binary with `duckdb-rs`. Loads the candidate and assertion JSONL into DuckD
 | Parquet | `.parquet` extension |
 | JSON | `.json` extension, row-oriented only |
 | JSONL | `.jsonl` extension |
+| XLSX / XLS / XLSM | `.xlsx`, `.xls`, `.xlsm` extensions; shared tabular reader, optional `--sheet` |
 
 Total implementation estimate: ~400-700 LOC of Rust.
 

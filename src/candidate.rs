@@ -5,12 +5,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use cmdrvl_tabular::{OpenOptions, RefusalCode as TabularRefusalCode, SheetSel, open};
 use duckdb::Connection;
 use serde::{
     Deserialize, Deserializer,
     de::{self, MapAccess, Visitor},
 };
 use serde_json::value::RawValue;
+use tempfile::NamedTempFile;
 use thiserror::Error;
 
 const RELATION_NAME: &str = "benchmark_candidate";
@@ -21,6 +23,7 @@ pub enum CandidateFormat {
     Json,
     Jsonl,
     Parquet,
+    Xlsx,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +43,7 @@ pub struct LoadedCandidate {
     relation_name: String,
     connection: Connection,
     columns: Vec<CandidateColumn>,
+    temporary_csv: Option<NamedTempFile>,
 }
 
 impl std::fmt::Debug for LoadedCandidate {
@@ -49,6 +53,7 @@ impl std::fmt::Debug for LoadedCandidate {
             .field("source", &self.source)
             .field("relation_name", &self.relation_name)
             .field("columns", &self.columns)
+            .field("temporary_csv", &self.temporary_csv.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -65,6 +70,8 @@ pub enum CandidateError {
     FormatDetect { path: PathBuf },
     #[error("candidate is not one row-oriented relation: {detail}")]
     CandidateShape { path: PathBuf, detail: String },
+    #[error("failed to read tabular candidate: {path}: {detail}")]
+    Tabular { path: PathBuf, detail: String },
     #[error("failed to load candidate into DuckDB: {path}")]
     Load {
         path: PathBuf,
@@ -86,6 +93,7 @@ impl CandidateFormat {
             Some("json") => Ok(Self::Json),
             Some("jsonl") => Ok(Self::Jsonl),
             Some("parquet") => Ok(Self::Parquet),
+            Some("xlsx" | "xlsm" | "xls") => Ok(Self::Xlsx),
             _ => Err(CandidateError::FormatDetect { path: path_buf }),
         }
     }
@@ -104,6 +112,9 @@ impl CandidateFormat {
             Self::Parquet => format!(
                 "CREATE TEMP TABLE {RELATION_NAME} AS SELECT * FROM read_parquet('{escaped_path}');"
             ),
+            Self::Xlsx => format!(
+                "CREATE TEMP TABLE {RELATION_NAME} AS SELECT * FROM read_csv_auto('{escaped_path}', all_varchar=true);"
+            ),
         }
     }
 }
@@ -119,11 +130,41 @@ impl CandidateSource {
 
 impl LoadedCandidate {
     pub fn load(path: impl Into<PathBuf>) -> Result<Self, CandidateError> {
+        Self::load_with_sheet(path, None)
+    }
+
+    pub fn load_with_sheet(
+        path: impl Into<PathBuf>,
+        sheet: Option<&str>,
+    ) -> Result<Self, CandidateError> {
         let source = CandidateSource::detect(path)?;
-        Self::from_source(source)
+        Self::from_source_with_sheet(source, sheet)
     }
 
     pub fn from_source(source: CandidateSource) -> Result<Self, CandidateError> {
+        Self::from_source_with_sheet(source, None)
+    }
+
+    pub fn from_source_with_sheet(
+        source: CandidateSource,
+        sheet: Option<&str>,
+    ) -> Result<Self, CandidateError> {
+        if sheet.is_some() && source.format != CandidateFormat::Xlsx {
+            return Err(CandidateError::CandidateShape {
+                path: source.path.clone(),
+                detail: "--sheet is only valid for XLSX/XLS candidates".to_owned(),
+            });
+        }
+
+        let mut temporary_csv = None;
+        let load_path = if source.format == CandidateFormat::Xlsx {
+            let rendered = render_xlsx_as_csv(&source.path, sheet)?;
+            let path = rendered.path().to_path_buf();
+            temporary_csv = Some(rendered);
+            path
+        } else {
+            source.path.clone()
+        };
         let connection =
             Connection::open_in_memory().map_err(|source_error| CandidateError::Load {
                 path: source.path.clone(),
@@ -136,7 +177,7 @@ impl LoadedCandidate {
             load_scalar_json(&connection, &source)?;
             Ok(())
         } else {
-            connection.execute_batch(&source.format.load_sql(&sql_string_literal(&source.path)))
+            connection.execute_batch(&source.format.load_sql(&sql_string_literal(&load_path)))
         };
         loaded.map_err(|source_error| CandidateError::Load {
             path: source.path.clone(),
@@ -162,6 +203,7 @@ impl LoadedCandidate {
             relation_name: RELATION_NAME.to_owned(),
             connection,
             columns,
+            temporary_csv,
         })
     }
 
@@ -180,6 +222,71 @@ impl LoadedCandidate {
     pub fn columns(&self) -> &[CandidateColumn] {
         &self.columns
     }
+}
+
+fn render_xlsx_as_csv(path: &Path, sheet: Option<&str>) -> Result<NamedTempFile, CandidateError> {
+    let options = OpenOptions {
+        sheet: sheet.map(SheetSel::parse),
+        ..OpenOptions::default()
+    };
+    let mut table = open(path, &options).map_err(|refusal| {
+        if refusal.code == TabularRefusalCode::EIo {
+            CandidateError::Io {
+                path: path.to_path_buf(),
+                source: io::Error::other(refusal.detail),
+            }
+        } else {
+            let context = if refusal.context.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " context={}",
+                    serde_json::to_string(&refusal.context).unwrap_or_default()
+                )
+            };
+            CandidateError::Tabular {
+                path: path.to_path_buf(),
+                detail: format!("{}: {}{}", refusal.code, refusal.detail, context),
+            }
+        }
+    })?;
+
+    let mut file = tempfile::Builder::new()
+        .prefix("benchmark-xlsx-")
+        .suffix(".csv")
+        .tempfile()
+        .map_err(|source| CandidateError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    {
+        let mut writer = csv::WriterBuilder::new()
+            .terminator(csv::Terminator::Any(b'\n'))
+            .from_writer(file.as_file_mut());
+        writer
+            .write_record(table.headers())
+            .map_err(|source| CandidateError::Io {
+                path: path.to_path_buf(),
+                source: io::Error::other(source.to_string()),
+            })?;
+        for row in table.rows() {
+            let row = row.map_err(|refusal| CandidateError::Tabular {
+                path: path.to_path_buf(),
+                detail: format!("{}: {}", refusal.code, refusal.detail),
+            })?;
+            writer
+                .write_record(row.cells.iter().map(|cell| cell.as_bytes()))
+                .map_err(|source| CandidateError::Io {
+                    path: path.to_path_buf(),
+                    source: io::Error::other(source.to_string()),
+                })?;
+        }
+        writer.flush().map_err(|source| CandidateError::Io {
+            path: path.to_path_buf(),
+            source: io::Error::other(source.to_string()),
+        })?;
+    }
+    Ok(file)
 }
 
 struct ScalarRow(BTreeMap<String, Option<String>>);
@@ -461,6 +568,14 @@ mod tests {
         assert_eq!(
             CandidateFormat::detect(Path::new("candidate.parquet"))?,
             CandidateFormat::Parquet
+        );
+        assert_eq!(
+            CandidateFormat::detect(Path::new("candidate.xlsx"))?,
+            CandidateFormat::Xlsx
+        );
+        assert_eq!(
+            CandidateFormat::detect(Path::new("candidate.xls"))?,
+            CandidateFormat::Xlsx
         );
         Ok(())
     }

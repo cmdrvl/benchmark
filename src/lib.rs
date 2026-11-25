@@ -162,6 +162,7 @@ pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
     if cli.candidate.is_none()
         && cli.assertions.is_none()
         && cli.key.is_none()
+        && cli.sheet.is_none()
         && cli.profile.is_none()
         && cli.lock.is_empty()
         && !cli.explicit
@@ -190,6 +191,7 @@ fn has_scoring_args(cli: &Cli) -> bool {
     cli.candidate.is_some()
         || cli.assertions.is_some()
         || cli.key.is_some()
+        || cli.sheet.is_some()
         || cli.profile.is_some()
         || cli.explicit
         || !cli.lock.is_empty()
@@ -223,7 +225,7 @@ fn execute_command(
         )
     };
 
-    let candidate = LoadedCandidate::load(&command.candidate)
+    let candidate = LoadedCandidate::load_with_sheet(&command.candidate, command.sheet.as_deref())
         .map_err(|error| Box::new(refusal_from_candidate_error(command, &error)))?;
     let key_check = key_check::validate_keys(&candidate, key_columns)
         .map_err(|error| Box::new(refusal_from_key_check_error(command, &error)))?;
@@ -333,13 +335,27 @@ fn refusal_from_candidate_error(
                 "detail": detail,
             }),
         ),
+        CandidateError::Tabular { path, detail } => (
+            "E_FORMAT_DETECT",
+            json!({
+                "path": path.display().to_string(),
+                "detail": detail,
+            }),
+        ),
         CandidateError::Load { path, .. } => (
             assertions::E_IO,
             json!({ "path": path.display().to_string() }),
         ),
     };
 
-    refusal_from_parts(command, code, error.to_string(), detail)
+    let ambiguous_sheet = ["E", "AMBIGUOUS_SHEET"].join("_");
+    let next = if matches!(error, CandidateError::Tabular { detail, .. } if detail.contains(&ambiguous_sheet))
+    {
+        format!("{} --sheet <name|index>", next_command(command))
+    } else {
+        next_command(command)
+    };
+    RefusalEnvelope::new(code, error.to_string(), detail, Some(next))
 }
 
 fn refusal_from_key_check_error(
@@ -481,6 +497,11 @@ fn next_command(command: &BenchmarkCommand) -> String {
     } else {
         parts.push("--key".to_owned());
         parts.push(shell_quote(&command.key));
+    }
+
+    if let Some(sheet) = &command.sheet {
+        parts.push("--sheet".to_owned());
+        parts.push(shell_quote(sheet));
     }
 
     for lockfile in &command.lockfiles {
@@ -640,6 +661,7 @@ mod tests {
             candidate: PathBuf::from("candidate.csv"),
             assertions: PathBuf::from("gold.jsonl"),
             key: "comp_id".to_owned(),
+            sheet: None,
             profile: None,
             explicit: false,
             lockfiles: vec![PathBuf::from("candidate.lock.json")],
@@ -658,6 +680,7 @@ mod tests {
             candidate: Some("candidate.csv".into()),
             assertions: Some("gold.jsonl".into()),
             key: Some("comp_id".to_owned()),
+            sheet: None,
             profile: None,
             explicit: false,
             lock: Vec::new(),
@@ -686,6 +709,7 @@ mod tests {
             candidate: PathBuf::from("candidate.csv"),
             assertions: PathBuf::from("gold.jsonl"),
             key: "comp_id".to_owned(),
+            sheet: None,
             profile: None,
             explicit: false,
             lockfiles: Vec::new(),

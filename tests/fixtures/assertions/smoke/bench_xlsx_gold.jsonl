@@ -1,0 +1,3 @@
+{"entity":"1","field":"region","expected":"East"}
+{"entity":"2","field":"amount","expected":"2000"}
+{"entity":"3","field":"region","expected":" North "}

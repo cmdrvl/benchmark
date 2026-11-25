@@ -23,7 +23,7 @@ pub enum SummaryRenderMode {
 pub struct Cli {
     #[arg(
         value_name = "CANDIDATE",
-        help = "File to score (CSV, JSON, JSONL, or Parquet)"
+        help = "File to score (CSV, JSON, JSONL, Parquet, XLSX, XLS, or XLSM)"
     )]
     pub candidate: Option<PathBuf>,
 
@@ -36,6 +36,13 @@ pub struct Cli {
         help = "Key column for entity lookup in candidate"
     )]
     pub key: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "NAME|INDEX",
+        help = "Worksheet name or zero-based index for XLSX/XLS candidates"
+    )]
+    pub sheet: Option<String>,
 
     #[arg(
         long,
@@ -176,6 +183,7 @@ pub struct BenchmarkCommand {
     pub candidate: PathBuf,
     pub assertions: PathBuf,
     pub key: String,
+    pub sheet: Option<String>,
     pub profile: Option<PathBuf>,
     pub explicit: bool,
     pub lockfiles: Vec<PathBuf>,
@@ -192,6 +200,7 @@ impl BenchmarkCommand {
                 .assertions
                 .ok_or("missing required argument --assertions <FILE>")?,
             key: cli.key.unwrap_or_default(),
+            sheet: cli.sheet,
             profile: cli.profile,
             explicit: cli.explicit,
             lockfiles: cli.lock,

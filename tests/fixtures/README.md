@@ -14,11 +14,13 @@ Fixture naming follows the planned harness split:
 ### Smoke candidates (happy-path)
 
 - `candidates/smoke/bench_i001_candidate.{csv,json,jsonl,parquet}` — minimal 2-row candidate for format coverage
+- `candidates/smoke/bench_xlsx_candidate.{xlsx,csv}` — shared-tabular XLSX/CSV parity fixture; the workbook's `loans` sheet is selected by name or index
 - `candidates/smoke/bench_mixed.csv` — 5-row candidate for mixed pass/fail/skip scoring
 
 ### Smoke assertions (happy-path)
 
 - `assertions/smoke/bench_i001_gold.jsonl` — 2 assertions against bench_i001 candidates (both should pass)
+- `assertions/smoke/bench_xlsx_gold.jsonl` — worksheet assertions used for XLSX/CSV score parity and sheet-selection refusal tests
 - `assertions/smoke/bench_mixed_gold.jsonl` — 7 assertions producing pass, fail, SKIP_ENTITY, and SKIP_FIELD outcomes
 - `assertions/smoke/bench_all_skip_gold.jsonl` — 2 assertions referencing absent entities (all skip, accuracy=null)
 
