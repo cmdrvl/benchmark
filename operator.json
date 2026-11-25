@@ -36,7 +36,7 @@
   "options": [
     { "name": "assertions", "flag": "--assertions", "type": "file_path", "required": true, "description": "Human-validated assertion file (JSONL). Frozen input: the cache key is (candidate bytes, assertion bytes, key column)." },
     { "name": "key", "flag": "--key", "type": "string", "required": true, "description": "Key column used to look up each assertion's entity in the candidate" },
-    { "name": "lock", "flag": "--lock", "type": "file_path", "repeatable": true, "description": "Verify the candidate is a member of these lock.v0 lockfiles before scoring; refuses E_INPUT_NOT_LOCKED or E_INPUT_DRIFT" },
+    { "name": "lock", "flag": "--lock", "type": "file_path", "repeatable": true, "description": "Verify the candidate is a member of these lock.v0 lockfiles before scoring; supports sha256: and blake3: bytes_hash values" },
     { "name": "json", "flag": "--json", "type": "flag", "description": "Emit the machine-readable benchmark.v0 JSON report" },
     { "name": "render", "flag": "--render", "type": "enum", "values": ["summary", "summary-tsv"], "description": "Emit a one-line summary or a TSV header and row instead of the full report (conflicts with --json)" },
     { "name": "describe", "flag": "--describe", "type": "flag", "description": "Print this operator manifest (identical to `capabilities --json`) and exit 0" },
@@ -84,7 +84,8 @@
     { "code": "E_KEY_NULL", "message": "Candidate key values include null or blank values", "action": "clean the candidate key column" },
     { "code": "E_FORMAT_DETECT", "message": "Candidate format is unsupported or is not one row-oriented relation", "action": "supply CSV, JSON, JSONL or Parquet with one row per record" },
     { "code": "E_INPUT_NOT_LOCKED", "message": "Candidate is not present in the supplied lockfiles", "action": "pass the correct --lock or lock the candidate first", "flag": "--lock" },
-    { "code": "E_INPUT_DRIFT", "message": "Candidate hash does not match the lock member", "action": "use the locked file or regenerate the lock", "flag": "--lock" }
+    { "code": "E_INPUT_DRIFT", "message": "Candidate hash does not match the lock member", "action": "use the locked file or regenerate the lock", "flag": "--lock" },
+    { "code": "E_UNSUPPORTED_HASH_ALGORITHM", "message": "Lock member uses an unsupported bytes_hash algorithm prefix", "action": "regenerate the lock with sha256 or blake3", "flag": "--lock" }
   ],
   "env_vars": [
     { "name": "EPISTEMIC_WITNESS", "description": "Witness ledger path; overrides ~/.cmdrvl/state/witness/witness.jsonl" },

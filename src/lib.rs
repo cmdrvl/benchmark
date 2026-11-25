@@ -328,6 +328,17 @@ fn refusal_from_lock_error(command: &BenchmarkCommand, error: &LockCheckError) -
             "expected_hash": expected_hash,
             "actual_hash": actual_hash,
         }),
+        LockCheckError::UnsupportedHashAlgorithm {
+            candidate,
+            lockfile,
+            member,
+            algorithm,
+        } => json!({
+            "candidate": candidate.display().to_string(),
+            "lockfile": lockfile.display().to_string(),
+            "member": member,
+            "algorithm": algorithm,
+        }),
     };
 
     refusal_from_parts(command, error.refusal_code(), error.to_string(), detail)
