@@ -208,9 +208,27 @@ jobs:
             exit 1
           fi
           for archive in dist/benchmark-*.tar.gz; do
+            [ -e "$archive" ] || continue
             members=$(tar -tzf "$archive" | sed 's|^\./||' | grep -v '^$' | grep -v '/$' | sort)
-            if [ "$members" != "$bin_name" ]; then
-              echo "$archive contains '$members', expected only '$bin_name'" >&2
+            if ! printf '%s\n' "$members" | grep -Fxq "$bin_name"; then
+              echo "$archive has no member named '$bin_name' (members: $(echo $members))" >&2
+              exit 1
+            fi
+            # LICENSE/README.md ride along; any other benchmark-looking name is a misnamed binary.
+            if printf '%s\n' "$members" | grep -i 'benchmark' | grep -Fxv "$bin_name" | grep -q .; then
+              echo "$archive has a differently named benchmark binary (members: $(echo $members))" >&2
+              exit 1
+            fi
+          done
+          for archive in dist/benchmark-*.zip; do
+            [ -e "$archive" ] || continue
+            members=$(unzip -Z1 "$archive" | sed 's|^\./||' | grep -v '/$' | sort)
+            if ! printf '%s\n' "$members" | grep -Fxq "$bin_name.exe"; then
+              echo "$archive has no member named '$bin_name.exe' (members: $(echo $members))" >&2
+              exit 1
+            fi
+            if printf '%s\n' "$members" | grep -i 'benchmark' | grep -Fxv "$bin_name.exe" | grep -q .; then
+              echo "$archive has a differently named benchmark binary (members: $(echo $members))" >&2
               exit 1
             fi
           done
