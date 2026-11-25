@@ -1,7 +1,7 @@
 {
   "schema_version": "operator.v1",
   "name": "benchmark",
-  "tool_version": "0.3.0",
+  "tool_version": "0.4.0",
   "contract_version": "1.0.0",
   "description": "Gold-set scoring for row-oriented extraction pipelines. Scores one row-oriented candidate relation (CSV, JSON, JSONL, Parquet, XLSX, XLS or XLSM) against a human-validated JSONL assertion set and emits a deterministic benchmark.v0 score report with a derived quality band for downstream policy.",
   "repository": "https://github.com/cmdrvl/benchmark",
