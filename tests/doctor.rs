@@ -57,10 +57,11 @@ fn doctor_health_json_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
         .output()?;
     let payload = parse_stdout_json(&output)?;
 
-    assert_eq!(payload["schema"], "benchmark.doctor.health.v1");
-    assert_eq!(payload["contract"], "cmdrvl.read_only_doctor.v1");
+    assert_eq!(payload["schema_version"], "cmdrvl.doctor.v1");
+    assert_eq!(payload["mode"], "health");
+    assert_eq!(payload["healthy"], true);
     assert_eq!(payload["tool"], "benchmark");
-    assert_eq!(payload["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(payload["tool_version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(payload["report_version"], "benchmark.v0");
     assert_eq!(payload["ok"], true);
     assert_eq!(payload["read_only"], true);
@@ -88,6 +89,62 @@ fn doctor_health_json_is_read_only() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn unhealthy_doctor_state_returns_exit_one() -> Result<(), Box<dyn std::error::Error>> {
+    let output = benchmark_cmd()
+        .args(["doctor", "--json"])
+        .env("BENCHMARK_DOCTOR_FORCE_UNHEALTHY", "1")
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+    let payload: Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(payload["healthy"], false);
+    assert_eq!(payload["findings"].as_array().map(Vec::len), Some(14));
+    assert!(payload["findings"].as_array().is_some_and(|findings| {
+        findings.iter().any(|finding| {
+            finding["id"] == "test_forced_unhealthy" && finding["severity"] == "error"
+        })
+    }));
+    Ok(())
+}
+
+#[test]
+fn no_color_and_non_tty_guard_forced_ansi() -> Result<(), Box<dyn std::error::Error>> {
+    let forced = benchmark_cmd()
+        .args(["doctor"])
+        .env("CLICOLOR_FORCE", "1")
+        .env_remove("NO_COLOR")
+        .env_remove("TERM")
+        .output()?;
+    assert!(String::from_utf8_lossy(&forced.stdout).contains("\x1b["));
+
+    let no_color = benchmark_cmd()
+        .args(["doctor"])
+        .env("CLICOLOR_FORCE", "1")
+        .env("NO_COLOR", "1")
+        .env_remove("TERM")
+        .output()?;
+    assert!(!String::from_utf8_lossy(&no_color.stdout).contains("\x1b["));
+
+    let dumb = benchmark_cmd()
+        .args(["doctor"])
+        .env("CLICOLOR_FORCE", "1")
+        .env_remove("NO_COLOR")
+        .env("TERM", "dumb")
+        .output()?;
+    assert!(!String::from_utf8_lossy(&dumb.stdout).contains("\x1b["));
+
+    let non_tty = benchmark_cmd()
+        .args(["doctor"])
+        .env_remove("CLICOLOR_FORCE")
+        .env_remove("NO_COLOR")
+        .env_remove("TERM")
+        .output()?;
+    assert!(!String::from_utf8_lossy(&non_tty.stdout).contains("\x1b["));
+    Ok(())
+}
+
+#[test]
 fn doctor_capabilities_json_has_no_fixers_or_side_effects() -> Result<(), Box<dyn std::error::Error>>
 {
     let output = benchmark_cmd()
@@ -95,46 +152,23 @@ fn doctor_capabilities_json_has_no_fixers_or_side_effects() -> Result<(), Box<dy
         .output()?;
     let payload = parse_stdout_json(&output)?;
 
-    assert_eq!(payload["schema"], "benchmark.doctor.capabilities.v1");
-    assert_eq!(payload["contract"], "cmdrvl.read_only_doctor.v1");
-    assert_eq!(payload["read_only"], true);
+    assert_eq!(payload["schema_version"], "cmdrvl.doctor.v1");
+    assert_eq!(payload["mode"], "capabilities");
+    assert_eq!(payload["healthy"], true);
+
+    // The embedded contract is exactly the top-level `capabilities --json` document.
+    let top_level = benchmark_cmd().args(["capabilities", "--json"]).output()?;
+    let top_level = parse_stdout_json(&top_level)?;
+    assert_eq!(payload["contract"], top_level);
+    assert_eq!(payload["contract"]["schema_version"], "operator.v1");
     assert_eq!(
-        payload["config_footprint"]["legacy_migration_required"],
-        false
+        payload["contract"]["composition"]["role"],
+        "gold_set_scorer"
     );
-    assert_all_side_effects_false(side_effects(&payload)?)?;
-    assert!(payload["fixers"].as_array().is_some_and(Vec::is_empty));
+    assert_eq!(payload["contract"]["side_effects"]["network"], false);
     assert_eq!(
-        payload["agent_entrypoints"][0]["usage"],
+        payload["contract"]["capabilities"]["agent_surfaces"]["robot_triage"],
         "benchmark --robot-triage"
-    );
-    assert_eq!(
-        payload["agent_entrypoints"][1]["usage"],
-        "benchmark capabilities --json"
-    );
-    assert_eq!(
-        payload["agent_entrypoints"][2]["usage"],
-        "benchmark robot-docs guide"
-    );
-    assert_eq!(payload["composition"]["role"], "gold_set_scorer");
-    assert_eq!(
-        payload["composition"]["produces"][0]["policy_signals"][0],
-        "quality_band"
-    );
-    assert_eq!(
-        payload["composition"]["canonical_chains"][0]["commands"][1],
-        "assess benchmark.json <other-artifacts> --policy <policy.yaml> --json > decision.json"
-    );
-    assert!(
-        payload["commands"]
-            .as_array()
-            .map(|commands| {
-                commands.iter().any(|command| {
-                    command["name"] == "robot-triage"
-                        && command["usage"] == "benchmark doctor --robot-triage"
-                })
-            })
-            .unwrap_or(false)
     );
     assert_doctor_artifacts_absent();
     Ok(())
@@ -147,8 +181,14 @@ fn doctor_robot_triage_json_is_machine_readable() -> Result<(), Box<dyn std::err
         .output()?;
     let payload = parse_stdout_json(&output)?;
 
-    assert_eq!(payload["schema"], "benchmark.doctor.triage.v1");
-    assert_eq!(payload["contract"], "cmdrvl.read_only_doctor.v1");
+    assert_eq!(payload["schema_version"], "cmdrvl.doctor.v1");
+    assert_eq!(payload["mode"], "triage");
+    assert_eq!(payload["healthy"], true);
+    assert!(
+        payload["next_actions"]
+            .as_array()
+            .is_some_and(|actions| !actions.is_empty())
+    );
     assert_eq!(payload["ok"], true);
     assert_eq!(payload["score"], 100);
     assert_eq!(payload["read_only"], true);
@@ -165,7 +205,7 @@ fn doctor_robot_docs_is_plain_text_and_read_only() -> Result<(), Box<dyn std::er
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     let stdout = String::from_utf8(output.stdout)?;
-    assert!(stdout.contains("cmdrvl.read_only_doctor.v1"));
+    assert!(stdout.contains("cmdrvl.doctor.v1"));
     assert!(stdout.contains("benchmark --robot-triage"));
     assert!(stdout.contains("benchmark capabilities --json"));
     assert!(stdout.contains("benchmark robot-docs guide"));

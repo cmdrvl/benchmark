@@ -12,10 +12,13 @@
     "usage": [
       "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>]",
       "benchmark --describe",
+      "benchmark --schema",
       "benchmark --robot-triage",
       "benchmark capabilities --json",
       "benchmark robot-docs guide",
-      "benchmark doctor [health|capabilities|robot-docs] [--json]"
+      "benchmark witness <query|last|count> [--json]",
+      "benchmark doctor [--json]",
+      "benchmark doctor <capabilities|triage|robot-docs> [--json]"
     ],
     "output_mode": "human text by default; benchmark.v0 JSON with --json; one-line summary or TSV with --render",
     "output_schema": "benchmark.v0",
@@ -37,7 +40,9 @@
     { "name": "json", "flag": "--json", "type": "flag", "description": "Emit the machine-readable benchmark.v0 JSON report" },
     { "name": "render", "flag": "--render", "type": "enum", "values": ["summary", "summary-tsv"], "description": "Emit a one-line summary or a TSV header and row instead of the full report (conflicts with --json)" },
     { "name": "describe", "flag": "--describe", "type": "flag", "description": "Print this operator manifest (identical to `capabilities --json`) and exit 0" },
-    { "name": "robot_triage", "flag": "--robot-triage", "type": "flag", "description": "Emit compact read-only triage JSON for automation" },
+    { "name": "schema", "flag": "--schema", "type": "flag", "description": "Print the JSON Schema for benchmark.v0 stdout (score report or refusal envelope) and exit 0" },
+    { "name": "no_witness", "flag": "--no-witness", "type": "flag", "description": "Do not record this run in the ambient witness ledger" },
+    { "name": "robot_triage", "flag": "--robot-triage", "type": "flag", "description": "Deprecated alias of `doctor triage --json`: emit compact read-only triage JSON" },
     { "name": "version", "flag": "--version", "type": "flag", "description": "Print the benchmark version and exit 0" }
   ],
   "commands": [
@@ -53,11 +58,16 @@
     },
     {
       "name": "doctor",
-      "description": "Read-only health report: crate identity, report contract and side-effect boundaries. Never reads candidates, assertions or lockfiles. Subcommands: health (default), capabilities, robot-docs. `--robot-triage` emits compact triage JSON.",
+      "description": "Read-only cmdrvl.doctor.v1 report: crate identity, report contract and side-effect boundaries. `doctor --json` is health; `doctor capabilities --json` embeds this contract; `doctor triage --json` adds next_actions. Exit 0 healthy, 1 unhealthy, 2 usage error. Never reads candidates, assertions, lockfiles or the witness ledger. Deprecated aliases: `doctor health`, `doctor --robot-triage` (= triage).",
       "options": [
         { "name": "json", "flag": "--json", "type": "flag", "description": "Emit JSON" },
-        { "name": "robot_triage", "flag": "--robot-triage", "type": "flag", "description": "Emit compact triage JSON" }
+        { "name": "robot_triage", "flag": "--robot-triage", "type": "flag", "description": "Deprecated alias of `doctor triage`" }
       ]
+    },
+    {
+      "name": "witness",
+      "description": "Query the ambient witness ledger: `witness query [--tool T] [--since TS] [--until TS] [--outcome PASS|FAIL|REFUSAL] [--input-hash H] [--limit N]`, `witness last`, `witness count [same filters]`. An empty result exits 0 and prints [] (count prints {\"count\":0}).",
+      "options": [{ "name": "json", "flag": "--json", "type": "flag", "description": "Emit JSON" }]
     }
   ],
   "exit_codes": {
@@ -76,14 +86,22 @@
     { "code": "E_INPUT_NOT_LOCKED", "message": "Candidate is not present in the supplied lockfiles", "action": "pass the correct --lock or lock the candidate first", "flag": "--lock" },
     { "code": "E_INPUT_DRIFT", "message": "Candidate hash does not match the lock member", "action": "use the locked file or regenerate the lock", "flag": "--lock" }
   ],
-  "env_vars": [],
+  "env_vars": [
+    { "name": "EPISTEMIC_WITNESS", "description": "Witness ledger path; overrides ~/.cmdrvl/state/witness/witness.jsonl" },
+    { "name": "HOME", "description": "Locates the default witness ledger" },
+    { "name": "SOURCE_DATE_EPOCH", "description": "Unix seconds used for witness record timestamps instead of the wall clock" },
+    { "name": "NO_COLOR", "description": "Disable ANSI status styling" },
+    { "name": "TERM", "description": "TERM=dumb disables ANSI status styling" },
+    { "name": "CLICOLOR_FORCE", "description": "Force ANSI status styling when NO_COLOR and TERM=dumb do not disable it" },
+    { "name": "BENCHMARK_DOCTOR_FORCE_UNHEALTHY", "description": "Test fixture: make doctor report an error finding and exit 1" }
+  ],
   "formats": ["csv", "json", "jsonl", "parquet"],
   "side_effects": {
     "reads_files": true,
     "writes_files": false,
     "network": false,
-    "writes_witness": false,
-    "notes": "Reads only the candidate, assertion and lock paths given on the command line. Score reports go to stdout; the only way benchmark writes an artifact is shell redirection. Ambient witness recording is not implemented."
+    "writes_witness": true,
+    "notes": "Reads only the candidate, assertion and lock paths given on the command line. Score reports go to stdout; the only artifact benchmark writes itself is one append-only record per scoring run in the witness ledger (opt out with --no-witness; a ledger write failure never changes the exit code). doctor, capabilities, robot-docs and witness commands do not append to the ledger."
   },
   "pipeline": {
     "upstream": ["canon", "rvl", "shape", "decoding"],
@@ -100,8 +118,10 @@
       "doctor_fix": "not_available"
     },
     "witness": {
-      "ambient_recording": "not_applicable",
-      "note": "benchmark does not write an ambient witness ledger in this release."
+      "ambient_recording": "implemented",
+      "ledger": "$EPISTEMIC_WITNESS or ~/.cmdrvl/state/witness/witness.jsonl",
+      "opt_out": "--no-witness",
+      "query": "benchmark witness query|last|count"
     },
     "determinism": {
       "deterministic": true,

@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cmdrvl/benchmark/benchmark.schema.json",
+  "title": "benchmark.v0",
+  "description": "JSON on stdout of `benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json`: a score report on PASS (exit 0) or FAIL (exit 1), or a refusal envelope on exit 2.",
+  "oneOf": [
+    { "$ref": "#/definitions/report" },
+    { "$ref": "#/definitions/refusal_envelope" }
+  ],
+  "definitions": {
+    "report": {
+      "type": "object",
+      "required": [
+        "tool", "version", "outcome", "candidate", "candidate_hash", "assertions_file",
+        "assertions_hash", "key_column", "input_verification", "policy_signals", "summary",
+        "failures", "skipped", "refusal"
+      ],
+      "properties": {
+        "tool": { "const": "benchmark" },
+        "version": { "const": "benchmark.v0" },
+        "outcome": { "enum": ["PASS", "FAIL"] },
+        "candidate": { "type": "string" },
+        "candidate_hash": { "type": "string" },
+        "assertions_file": { "type": "string" },
+        "assertions_hash": { "type": "string" },
+        "key_column": { "type": "string" },
+        "input_verification": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["lockfiles", "matched_lockfile", "verified_member", "candidate_hash"],
+              "properties": {
+                "lockfiles": { "type": "array", "items": { "type": "string" } },
+                "matched_lockfile": { "type": "string" },
+                "verified_member": { "type": "string" },
+                "candidate_hash": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "policy_signals": {
+          "type": "object",
+          "required": ["quality_band", "quality_band_basis"],
+          "properties": {
+            "quality_band": { "enum": ["HIGH", "ACCEPTABLE", "LOW"] },
+            "quality_band_basis": { "enum": ["all_pass_no_skip", "skip_only", "assertion_failures_present"] }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "required": ["total", "passed", "failed", "skipped", "resolved", "accuracy", "coverage", "by_severity"],
+          "properties": {
+            "total": { "type": "integer", "minimum": 0 },
+            "passed": { "type": "integer", "minimum": 0 },
+            "failed": { "type": "integer", "minimum": 0 },
+            "skipped": { "type": "integer", "minimum": 0 },
+            "resolved": { "type": "integer", "minimum": 0 },
+            "accuracy": { "type": ["number", "null"] },
+            "coverage": { "type": "number" },
+            "by_severity": {
+              "type": "object",
+              "required": ["critical", "major", "minor"],
+              "properties": {
+                "critical": { "type": "object" },
+                "major": { "type": "object" },
+                "minor": { "type": "object" }
+              }
+            }
+          }
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entity", "field", "expected", "actual", "compare_as", "severity"],
+            "properties": {
+              "entity": { "type": "string" },
+              "field": { "type": "string" },
+              "expected": { "type": "string" },
+              "actual": { "type": ["string", "null"] },
+              "compare_as": { "type": "string" },
+              "tolerance": { "type": ["number", "null"] },
+              "severity": { "enum": ["critical", "major", "minor"] },
+              "source": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entity", "field", "reason", "detail"],
+            "properties": {
+              "entity": { "type": "string" },
+              "field": { "type": "string" },
+              "reason": { "enum": ["SKIP_ENTITY", "SKIP_FIELD"] },
+              "detail": { "type": "string" }
+            }
+          }
+        },
+        "refusal": { "type": "null" }
+      }
+    },
+    "refusal_envelope": {
+      "type": "object",
+      "required": ["tool", "version", "outcome", "policy_signals", "refusal"],
+      "properties": {
+        "tool": { "const": "benchmark" },
+        "version": { "const": "benchmark.v0" },
+        "outcome": { "const": "REFUSAL" },
+        "policy_signals": { "type": "object" },
+        "refusal": {
+          "type": "object",
+          "required": ["code", "message", "detail", "next_command"],
+          "properties": {
+            "code": { "type": "string", "pattern": "^E_" },
+            "message": { "type": "string" },
+            "detail": {},
+            "next_command": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

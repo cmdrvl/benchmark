@@ -62,6 +62,15 @@ pub struct Cli {
     )]
     pub describe: bool,
 
+    #[arg(long, help = "Print the JSON Schema for benchmark.v0 stdout and exit")]
+    pub schema: bool,
+
+    #[arg(
+        long = "no-witness",
+        help = "Do not record this run in the ambient witness ledger"
+    )]
+    pub no_witness: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -72,6 +81,51 @@ pub enum Command {
     Capabilities,
     #[command(name = "robot-docs")]
     RobotDocs(RobotDocsArgs),
+    /// Query the ambient witness ledger (`--json` for JSON output)
+    Witness {
+        #[command(subcommand)]
+        action: WitnessAction,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum WitnessAction {
+    /// List matching records, oldest first
+    Query(WitnessQueryArgs),
+    /// Show the most recent record
+    Last,
+    /// Count matching records
+    Count(WitnessCountArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WitnessQueryArgs {
+    #[arg(long)]
+    pub tool: Option<String>,
+    #[arg(long, help = "Only records at or after this UTC timestamp")]
+    pub since: Option<String>,
+    #[arg(long, help = "Only records at or before this UTC timestamp")]
+    pub until: Option<String>,
+    #[arg(long, help = "PASS, FAIL or REFUSAL")]
+    pub outcome: Option<String>,
+    #[arg(long = "input-hash", help = "Substring of an input hash")]
+    pub input_hash: Option<String>,
+    #[arg(long, default_value_t = 20)]
+    pub limit: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WitnessCountArgs {
+    #[arg(long)]
+    pub tool: Option<String>,
+    #[arg(long)]
+    pub since: Option<String>,
+    #[arg(long)]
+    pub until: Option<String>,
+    #[arg(long)]
+    pub outcome: Option<String>,
+    #[arg(long = "input-hash")]
+    pub input_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -87,6 +141,7 @@ pub struct DoctorArgs {
 pub enum DoctorCommand {
     Health,
     Capabilities,
+    Triage,
     #[command(name = "robot-docs")]
     RobotDocs,
 }

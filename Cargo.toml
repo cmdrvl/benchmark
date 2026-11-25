@@ -25,6 +25,7 @@ duckdb = "1.4.4"
 gag = "1.0.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision", "raw_value"] }
+blake3 = "1"
 sha2 = "0.10"
 thiserror = "2"
 
@@ -36,4 +37,9 @@ panic = "abort"
 strip = true
 
 [dev-dependencies]
-spine-rules = { git = "https://github.com/cmdrvl/spine-rules" }
+jsonschema = { version = "0.30", default-features = false }
+spine-rules = {
+    git = "https://github.com/cmdrvl/spine-rules",
+    rev = "f96638f7c65597d658182253350f1320002976e3",
+    version = "=0.3.1",
+}

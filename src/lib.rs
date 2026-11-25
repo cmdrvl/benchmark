@@ -26,6 +26,10 @@ pub mod paths;
 pub mod refusal;
 pub mod render;
 pub mod report;
+pub mod witness;
+
+/// JSON Schema for `benchmark.v0` stdout (score report or refusal envelope).
+pub const SCHEMA_JSON: &str = include_str!("../benchmark.schema.json");
 
 use assertions::AssertionError;
 use candidate::{CandidateError, LoadedCandidate};
@@ -81,6 +85,15 @@ pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
         return Ok(Execution::new(Outcome::Pass, describe_output()));
     }
 
+    if cli.schema {
+        if has_scoring_args(&cli) || cli.command.is_some() || cli.robot_triage {
+            return Err("`benchmark --schema` does not accept other arguments".into());
+        }
+        let mut schema = SCHEMA_JSON.trim_end().to_owned();
+        schema.push('\n');
+        return Ok(Execution::new(Outcome::Pass, schema));
+    }
+
     if cli.robot_triage {
         if has_scoring_args(&cli) {
             return Err(
@@ -121,6 +134,9 @@ pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
                     ))
                 }
             }
+            Command::Witness { action } => witness::execute(&action, cli.json).map_err(|error| {
+                format!("benchmark: witness: failed to read ledger: {error}").into()
+            }),
             Command::RobotDocs(args) => {
                 let command = args.command.unwrap_or(RobotDocsCommand::Guide);
                 match command {
@@ -446,6 +462,9 @@ mod tests {
             json: true,
             render: None,
             robot_triage: false,
+            describe: false,
+            schema: false,
+            no_witness: true,
             command: None,
         };
 

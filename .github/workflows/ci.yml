@@ -72,6 +72,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  static:
+    name: ast-grep static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install ast-grep
+        run: cargo install ast-grep --locked --version 0.40.5
+      - name: Run Golden Rule static checks
+        run: ast-grep scan --config sgconfig.yml --report-style short src
+
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

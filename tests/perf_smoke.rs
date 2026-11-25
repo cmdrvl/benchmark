@@ -117,6 +117,9 @@ fn BENCH_I901_perf_smoke_integrated_path_captures_phase_timings()
         json: true,
         render: None,
         robot_triage: false,
+        describe: false,
+        schema: false,
+        no_witness: true,
         command: None,
     })?;
     let execute_total = execute_start.elapsed();

@@ -1,3 +1,16 @@
+//! `benchmark doctor`: read-only reports under the family `cmdrvl.doctor.v1` schema.
+//!
+//! | invocation                               | `mode`         |
+//! |------------------------------------------|----------------|
+//! | `doctor --json` / `doctor health --json` | `health`       |
+//! | `doctor capabilities --json`             | `capabilities` (embeds the operator.v1 `contract`) |
+//! | `doctor triage --json`                   | `triage`       |
+//!
+//! Aliases kept for compatibility: `--robot-triage` and `doctor --robot-triage`
+//! emit the triage document. Exit `0` healthy, `1` unhealthy, `2` usage error.
+
+use std::io::{self, IsTerminal};
+
 use serde_json::{Value, json};
 
 use crate::{
@@ -6,44 +19,92 @@ use crate::{
     paths,
 };
 
-const CONTRACT: &str = "cmdrvl.read_only_doctor.v1";
-const HEALTH_SCHEMA: &str = "benchmark.doctor.health.v1";
-const CAPABILITIES_SCHEMA: &str = "benchmark.doctor.capabilities.v1";
-const TRIAGE_SCHEMA: &str = "benchmark.doctor.triage.v1";
+pub const DOCTOR_SCHEMA_VERSION: &str = "cmdrvl.doctor.v1";
+const FORCE_UNHEALTHY_ENV: &str = "BENCHMARK_DOCTOR_FORCE_UNHEALTHY";
 
 pub fn execute(args: DoctorArgs, json: bool) -> Execution {
     let command = if args.robot_triage {
-        DoctorCommand::RobotDocs
+        DoctorCommand::Triage
     } else {
         args.command.unwrap_or(DoctorCommand::Health)
     };
 
-    match (command, args.robot_triage, json) {
-        (_, true, _) => json_execution(triage_payload()),
-        (DoctorCommand::Health, _, true) => json_execution(health_payload()),
-        (DoctorCommand::Health, _, false) => {
-            Execution::new(Outcome::Pass, health_summary(&health_payload()))
+    match (command, json || args.robot_triage) {
+        (DoctorCommand::Health, true) => json_execution(health_payload()),
+        (DoctorCommand::Health, false) => {
+            let payload = health_payload();
+            execution_for(&payload, health_summary(&payload))
         }
-        (DoctorCommand::Capabilities, _, true) => json_execution(capabilities_payload()),
-        (DoctorCommand::Capabilities, _, false) => Execution::new(
+        (DoctorCommand::Capabilities, true) => json_execution(capabilities_payload()),
+        (DoctorCommand::Capabilities, false) => Execution::new(
             Outcome::Pass,
-            "benchmark doctor capabilities\nread_only=true\nfixers=0\ncommands=health,capabilities,robot-docs,--robot-triage",
+            "benchmark doctor capabilities\nread_only=true\nfixers=0\ncommands=health,capabilities,triage,robot-docs,--robot-triage",
         ),
-        (DoctorCommand::RobotDocs, _, _) => Execution::new(Outcome::Pass, robot_docs_text()),
+        (DoctorCommand::Triage, true) => json_execution(triage_payload()),
+        (DoctorCommand::Triage, false) => {
+            let payload = triage_payload();
+            execution_for(&payload, triage_text(&payload))
+        }
+        (DoctorCommand::RobotDocs, _) => Execution::new(Outcome::Pass, robot_docs_text()),
     }
 }
 
+fn is_healthy(payload: &Value) -> bool {
+    payload
+        .get("healthy")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn outcome_for(payload: &Value) -> Outcome {
+    if is_healthy(payload) {
+        Outcome::Pass
+    } else {
+        Outcome::Fail
+    }
+}
+
+fn execution_for(payload: &Value, text: String) -> Execution {
+    Execution::new(outcome_for(payload), text)
+}
+
 fn json_execution(payload: Value) -> Execution {
-    Execution::new(Outcome::Pass, json_string(&payload))
+    let outcome = outcome_for(&payload);
+    Execution::new(outcome, json_string(&payload))
 }
 
 fn json_string(payload: &Value) -> String {
     match serde_json::to_string(payload) {
         Ok(encoded) => encoded,
         Err(error) => format!(
-            "{{\"schema\":\"{HEALTH_SCHEMA}\",\"contract\":\"{CONTRACT}\",\"tool\":\"benchmark\",\"ok\":false,\"error\":\"json encode failed: {error}\"}}"
+            "{{\"schema_version\":\"{DOCTOR_SCHEMA_VERSION}\",\"mode\":\"health\",\"tool\":\"benchmark\",\"tool_version\":\"{}\",\"healthy\":false,\"findings\":[{{\"id\":\"json_encode\",\"severity\":\"error\",\"message\":\"json encode failed: {error}\"}}]}}",
+            env!("CARGO_PKG_VERSION")
         ),
     }
+}
+
+fn base(mode: &str, healthy: bool, findings: Vec<Value>) -> serde_json::Map<String, Value> {
+    let mut object = serde_json::Map::new();
+    object.insert("schema_version".into(), json!(DOCTOR_SCHEMA_VERSION));
+    object.insert("mode".into(), json!(mode));
+    object.insert("tool".into(), json!(TOOL));
+    object.insert("tool_version".into(), json!(env!("CARGO_PKG_VERSION")));
+    object.insert("healthy".into(), json!(healthy));
+    object.insert("findings".into(), Value::Array(findings));
+    object
+}
+
+fn findings_from_checks(checks: &[Value]) -> Vec<Value> {
+    checks
+        .iter()
+        .map(|check| {
+            json!({
+                "id": check["id"],
+                "severity": check["severity"],
+                "message": check["message"],
+            })
+        })
+        .collect()
 }
 
 fn health_payload() -> Value {
@@ -53,260 +114,74 @@ fn health_payload() -> Value {
         .filter(|check| !check.get("ok").and_then(Value::as_bool).unwrap_or(false))
         .count();
     let total = checks.len();
-    let passed = total.saturating_sub(failed);
+    let healthy = failed == 0;
 
-    json!({
-        "schema": HEALTH_SCHEMA,
-        "contract": CONTRACT,
-        "tool": TOOL,
-        "version": env!("CARGO_PKG_VERSION"),
-        "report_version": REPORT_VERSION,
-        "ok": failed == 0,
-        "read_only": true,
-        "summary": {
+    let mut object = base("health", healthy, findings_from_checks(&checks));
+    // Additive detail kept from the pre-v1 health report.
+    object.insert("report_version".into(), json!(REPORT_VERSION));
+    object.insert("ok".into(), json!(healthy));
+    object.insert("read_only".into(), json!(true));
+    object.insert(
+        "summary".into(),
+        json!({
             "checks_total": total,
-            "checks_passed": passed,
+            "checks_passed": total.saturating_sub(failed),
             "checks_failed": failed
-        },
-        "checks": checks,
-        "observed_paths": observed_paths(),
-        "config_footprint": paths::config_footprint(),
-        "side_effects": side_effects(),
-        "fixers": []
-    })
+        }),
+    );
+    object.insert("checks".into(), Value::Array(checks));
+    object.insert("observed_paths".into(), observed_paths());
+    object.insert("config_footprint".into(), paths::config_footprint());
+    object.insert("side_effects".into(), side_effects());
+    object.insert("fixers".into(), json!([]));
+    Value::Object(object)
 }
 
+/// `doctor capabilities`: no health inspection, so healthy with no findings; the
+/// embedded `contract` is exactly `capabilities --json`.
 fn capabilities_payload() -> Value {
-    json!({
-        "schema": CAPABILITIES_SCHEMA,
-        "contract": CONTRACT,
-        "tool": TOOL,
-        "version": env!("CARGO_PKG_VERSION"),
-        "report_version": REPORT_VERSION,
-        "read_only": true,
-        "agent_entrypoints": [
-            {
-                "usage": "benchmark --robot-triage",
-                "output_schema": TRIAGE_SCHEMA,
-                "description": "Single-call read-only health, side-effect, and next-step triage for automation"
-            },
-            {
-                "usage": "benchmark capabilities --json",
-                "output_schema": CAPABILITIES_SCHEMA,
-                "description": "Top-level alias for the full machine-readable CLI contract"
-            },
-            {
-                "usage": "benchmark robot-docs guide",
-                "output_schema": "text/plain",
-                "description": "Top-level alias for the agent-oriented command guide"
-            }
-        ],
-        "commands": [
-            {
-                "name": "run-json",
-                "usage": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json",
-                "output_schema": "benchmark.v0",
-                "description": "Score one row-oriented candidate against a JSONL assertion set"
-            },
-            {
-                "name": "run-summary",
-                "usage": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --render summary",
-                "output_schema": "text/plain",
-                "description": "Emit a one-line operator summary derived from the score report"
-            },
-            {
-                "name": "run-summary-tsv",
-                "usage": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --render summary-tsv",
-                "output_schema": "text/tab-separated-values",
-                "description": "Emit a stable TSV header and row for shell pipelines"
-            },
-            {
-                "name": "run-with-lock",
-                "usage": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --lock <LOCKFILE> --json",
-                "output_schema": "benchmark.v0",
-                "description": "Verify candidate lock membership and hash before scoring"
-            },
-            {
-                "name": "top-level-triage",
-                "usage": "benchmark --robot-triage",
-                "output_schema": TRIAGE_SCHEMA,
-                "description": "Top-level compact triage report for automation"
-            },
-            {
-                "name": "top-level-capabilities",
-                "usage": "benchmark capabilities --json",
-                "output_schema": CAPABILITIES_SCHEMA,
-                "description": "Top-level capabilities alias"
-            },
-            {
-                "name": "top-level-robot-docs",
-                "usage": "benchmark robot-docs guide",
-                "output_schema": "text/plain",
-                "description": "Top-level agent guide alias"
-            },
-            {
-                "name": "health",
-                "usage": "benchmark doctor health --json",
-                "output_schema": HEALTH_SCHEMA,
-                "description": "Report compiled crate, report contract, and read-only doctor health"
-            },
-            {
-                "name": "capabilities",
-                "usage": "benchmark doctor capabilities --json",
-                "output_schema": CAPABILITIES_SCHEMA,
-                "description": "Describe doctor commands, exit codes, side-effect boundaries, and disabled fixers"
-            },
-            {
-                "name": "robot-docs",
-                "usage": "benchmark doctor robot-docs",
-                "output_schema": "text/plain",
-                "description": "Emit concise machine-oriented usage notes"
-            },
-            {
-                "name": "robot-triage",
-                "usage": "benchmark doctor --robot-triage",
-                "output_schema": TRIAGE_SCHEMA,
-                "description": "Emit a compact triage report for automation"
-            }
-        ],
-        "exit_codes": {
-            "0": "PASS scoring outcome or successful read-only metadata command",
-            "1": "FAIL scoring outcome: one or more assertions failed or skipped",
-            "2": "REFUSAL, CLI usage error, or unexpected top-level error"
-        },
-        "refusal_codes": [
-            {
-                "code": "E_IO",
-                "meaning": "candidate, assertions, or lockfile could not be read",
-                "next_command": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json"
-            },
-            {
-                "code": "E_BAD_ASSERTIONS",
-                "meaning": "assertions JSONL is malformed or semantically invalid",
-                "next_command": "benchmark <CANDIDATE> --assertions <FIXED_FILE> --key <COLUMN> --json"
-            },
-            {
-                "code": "E_EMPTY_ASSERTIONS",
-                "meaning": "assertions file contains zero valid assertions",
-                "next_command": "benchmark <CANDIDATE> --assertions <NONEMPTY_FILE> --key <COLUMN> --json"
-            },
-            {
-                "code": "E_KEY_NOT_FOUND",
-                "meaning": "candidate does not contain the requested key column",
-                "next_command": "benchmark <CANDIDATE> --assertions <FILE> --key <EXISTING_COLUMN> --json"
-            },
-            {
-                "code": "E_KEY_NOT_UNIQUE",
-                "meaning": "candidate key values are ambiguous",
-                "next_command": "benchmark <CANONICALIZED_CANDIDATE> --assertions <FILE> --key <UNIQUE_COLUMN> --json"
-            },
-            {
-                "code": "E_KEY_NULL",
-                "meaning": "candidate key values include null or blank values",
-                "next_command": "benchmark <CLEAN_CANDIDATE> --assertions <FILE> --key <COLUMN> --json"
-            },
-            {
-                "code": "E_FORMAT_DETECT",
-                "meaning": "candidate format is unsupported or not one row-oriented relation",
-                "next_command": "benchmark <ROW_ORIENTED_CSV_JSON_JSONL_OR_PARQUET> --assertions <FILE> --key <COLUMN> --json"
-            },
-            {
-                "code": "E_INPUT_NOT_LOCKED",
-                "meaning": "candidate is not present in supplied lockfiles",
-                "next_command": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --lock <CORRECT_LOCKFILE> --json"
-            },
-            {
-                "code": "E_INPUT_DRIFT",
-                "meaning": "candidate hash does not match the lock member",
-                "next_command": "benchmark <LOCKED_CANDIDATE> --assertions <FILE> --key <COLUMN> --lock <LOCKFILE> --json"
-            }
-        ],
-        "composition": {
-            "family": {
-                "name": "cmdrvl-spine",
-                "siblings": ["canon", "verify", "assess", "lock", "pack"],
-                "capabilities": {
-                    "benchmark": "benchmark capabilities --json",
-                    "assess": "assess capabilities --json",
-                    "lock": "lock capabilities --json",
-                    "pack": "pack capabilities --json"
-                }
-            },
-            "role": "gold_set_scorer",
-            "position": "before_assess",
-            "accepts": [
-                {
-                    "kind": "candidate_relation",
-                    "description": "One row-oriented candidate relation in CSV, JSON, JSONL, or Parquet form."
-                },
-                {
-                    "kind": "assertion_set",
-                    "description": "Human-validated JSONL assertions keyed by the same stable entity column."
-                },
-                {
-                    "kind": "lockfile",
-                    "description": "Optional lock artifact proving candidate membership and hash identity."
-                }
-            ],
-            "produces": [
-                {
-                    "kind": "benchmark_report",
-                    "schema": "benchmark.v0",
-                    "policy_signals": ["quality_band", "quality_band_basis"],
-                    "command": "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json"
-                }
-            ],
-            "canonical_chains": [
-                {
-                    "name": "score_then_assess",
-                    "commands": [
-                        "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json > benchmark.json",
-                        "assess benchmark.json <other-artifacts> --policy <policy.yaml> --json > decision.json",
-                        "pack seal benchmark.json decision.json --output evidence/"
-                    ],
-                    "downstream_tools": ["assess", "pack"]
-                }
-            ],
-            "agent_rules": [
-                "Use benchmark to produce quality evidence, not policy decisions.",
-                "Pass benchmark.v0 reports to assess when policy rules depend on quality_band.",
-                "Use --lock when the candidate should be tied to a prior vacuum/hash/lock pipeline."
-            ]
-        },
-        "config_footprint": paths::config_footprint(),
-        "side_effects": side_effects(),
-        "fixers": []
-    })
+    let contract: Value = serde_json::from_str(crate::OPERATOR_JSON).unwrap_or(Value::Null);
+    let mut object = base("capabilities", true, Vec::new());
+    object.insert("contract".into(), contract);
+    Value::Object(object)
 }
 
 fn triage_payload() -> Value {
     let health = health_payload();
-    let ok = health.get("ok").and_then(Value::as_bool).unwrap_or(false);
-    let checks = health
-        .get("checks")
+    let healthy = is_healthy(&health);
+    let findings = health
+        .get("findings")
         .cloned()
         .unwrap_or_else(|| Value::Array(Vec::new()));
 
-    json!({
-        "schema": TRIAGE_SCHEMA,
-        "contract": CONTRACT,
-        "tool": TOOL,
-        "version": env!("CARGO_PKG_VERSION"),
-        "report_version": REPORT_VERSION,
-        "ok": ok,
-        "score": if ok { 100 } else { 0 },
-        "read_only": true,
-        "checks": checks,
-        "config_footprint": paths::config_footprint(),
-        "side_effects": side_effects(),
-        "fixers": [],
-        "recommended_next_steps": [
-            "Use benchmark capabilities --json for the machine-readable CLI contract.",
-            "Use benchmark robot-docs guide for the agent-oriented command guide.",
-            "Use benchmark <candidate> --assertions <gold.jsonl> --key <column> --json for a score report.",
-            "Do not expect benchmark doctor to read candidate files, assertion files, lockfiles, open DuckDB, score assertions, or mint gold truth."
-        ]
-    })
+    let mut next_actions = vec![
+        "Use benchmark capabilities --json for the machine-readable CLI contract.".to_owned(),
+        "Use benchmark robot-docs guide for the agent-oriented command guide.".to_owned(),
+        "Use benchmark <candidate> --assertions <gold.jsonl> --key <column> --json for a score report.".to_owned(),
+    ];
+    if !healthy {
+        next_actions.insert(
+            0,
+            "Reinstall benchmark: a compiled-in identity or contract check failed.".to_owned(),
+        );
+    }
+
+    let mut object = base("triage", healthy, Vec::new());
+    object.insert("findings".into(), findings);
+    object.insert("next_actions".into(), json!(next_actions));
+    // Additive detail kept from the pre-v1 triage report.
+    object.insert("report_version".into(), json!(REPORT_VERSION));
+    object.insert("ok".into(), json!(healthy));
+    object.insert("score".into(), json!(if healthy { 100 } else { 0 }));
+    object.insert("read_only".into(), json!(true));
+    object.insert(
+        "checks".into(),
+        health.get("checks").cloned().unwrap_or(Value::Null),
+    );
+    object.insert("config_footprint".into(), paths::config_footprint());
+    object.insert("side_effects".into(), side_effects());
+    object.insert("fixers".into(), json!([]));
+    Value::Object(object)
 }
 
 fn health_checks() -> Vec<Value> {
@@ -325,6 +200,19 @@ fn health_checks() -> Vec<Value> {
             "report_contract",
             REPORT_VERSION == "benchmark.v0",
             "compiled scoring report contract is benchmark.v0",
+        ),
+        check(
+            "operator_manifest_embedded",
+            serde_json::from_str::<Value>(crate::OPERATOR_JSON)
+                .ok()
+                .and_then(|manifest| {
+                    manifest
+                        .get("tool_version")
+                        .and_then(Value::as_str)
+                        .map(|version| version == env!("CARGO_PKG_VERSION"))
+                })
+                .unwrap_or(false),
+            "compiled operator manifest parses and matches the crate version",
         ),
         check(
             "fix_mode_disabled",
@@ -362,9 +250,19 @@ fn health_checks() -> Vec<Value> {
             "doctor performs no DNS, HTTP, TLS, or other network probes",
         ),
         check(
+            "witness_ledger_untouched",
+            true,
+            "doctor does not read or append the ambient witness ledger",
+        ),
+        check(
             "config_footprint_declared",
             true,
-            "benchmark has no implicit managed config, state, or cache paths",
+            "benchmark manages no config or cache paths; its only state path is the witness ledger",
+        ),
+        check(
+            "test_forced_unhealthy",
+            std::env::var_os(FORCE_UNHEALTHY_ENV).is_none(),
+            "test fixture can force an unhealthy doctor report",
         ),
     ]
 }
@@ -413,13 +311,14 @@ fn side_effects() -> Value {
         "writes_assertion_files": false,
         "writes_lockfiles": false,
         "writes_doctor_artifacts": false,
+        "writes_witness_ledger": false,
         "uses_network": false,
         "changes_cwd": false
     })
 }
 
 fn health_summary(payload: &Value) -> String {
-    let ok = payload.get("ok").and_then(Value::as_bool).unwrap_or(false);
+    let healthy = is_healthy(payload);
     let passed = payload
         .get("summary")
         .and_then(|summary| summary.get("checks_passed"))
@@ -430,14 +329,60 @@ fn health_summary(payload: &Value) -> String {
         .and_then(|summary| summary.get("checks_total"))
         .and_then(Value::as_u64)
         .unwrap_or(0);
-    let status = if ok { "ok" } else { "unhealthy" };
+    let status = if healthy {
+        color_status("ok", true)
+    } else {
+        color_status("unhealthy", false)
+    };
     format!("benchmark doctor health: {status}\nread_only=true\nfixers=0\nchecks={passed}/{total}")
+}
+
+fn triage_text(payload: &Value) -> String {
+    let status = if is_healthy(payload) {
+        color_status("healthy", true)
+    } else {
+        color_status("unhealthy", false)
+    };
+    let mut lines = vec![format!("benchmark doctor triage: {status}")];
+    for action in payload
+        .get("next_actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        lines.push(format!("next: {action}"));
+    }
+    lines.join("\n")
+}
+
+fn color_status(status: &str, healthy: bool) -> String {
+    if !color_enabled() {
+        return status.to_owned();
+    }
+    let color = if healthy { "32" } else { "31" };
+    format!("\x1b[{color}m{status}\x1b[0m")
+}
+
+fn color_enabled() -> bool {
+    if std::env::var_os("NO_COLOR").is_some()
+        || std::env::var("TERM").is_ok_and(|term| term.eq_ignore_ascii_case("dumb"))
+    {
+        return false;
+    }
+
+    let force = std::env::var("CLICOLOR_FORCE")
+        .map(|value| !value.is_empty() && value != "0")
+        .unwrap_or(false);
+    force || io::stdout().is_terminal()
 }
 
 fn robot_docs_text() -> &'static str {
     "benchmark robot-docs guide\n\
-contract: cmdrvl.read_only_doctor.v1\n\
+contract: cmdrvl.doctor.v1\n\
 agent_entrypoints:\n\
+  benchmark --describe\n\
+  benchmark --schema\n\
   benchmark --robot-triage\n\
   benchmark capabilities --json\n\
   benchmark robot-docs guide\n\
@@ -445,19 +390,28 @@ scoring:\n\
   benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json\n\
   benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --render summary\n\
   benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --lock <LOCKFILE> --json\n\
+  add --no-witness to keep a run out of the ambient witness ledger\n\
+witness:\n\
+  benchmark witness query --json\n\
+  benchmark witness last --json\n\
+  benchmark witness count --json\n\
 commands:\n\
-  benchmark doctor health --json\n\
+  benchmark doctor --json\n\
   benchmark doctor capabilities --json\n\
-  benchmark doctor --robot-triage\n\
+  benchmark doctor triage --json\n\
+  benchmark doctor health --json (alias of doctor --json)\n\
+  benchmark doctor --robot-triage (alias of doctor triage)\n\
+exit_codes:\n\
+  0 healthy / PASS, 1 unhealthy / FAIL, 2 refusal or usage error\n\
 composition:\n\
   benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json > benchmark.json\n\
   assess benchmark.json <other-artifacts> --policy <policy.yaml> --json > decision.json\n\
   pack seal benchmark.json decision.json --output evidence/\n\
 read_only:\n\
-  - does not read stdin, candidates, assertions, lockfiles, or fixture paths\n\
-  - does not detect formats, open DuckDB, validate keys, verify locks, compare values, score assertions, or mint gold truth\n\
-  - does not create directories, write doctor artifacts, or use the network\n\
-  - no implicit ~/.cmdrvl config, state, or cache paths are read or written\n\
+  - doctor does not read stdin, candidates, assertions, lockfiles, or fixture paths\n\
+  - doctor does not detect formats, open DuckDB, validate keys, verify locks, compare values, score assertions, or mint gold truth\n\
+  - doctor does not create directories, write doctor artifacts, touch the witness ledger, or use the network\n\
+  - no implicit ~/.cmdrvl config or cache paths are read or written by doctor; scoring runs append to the witness ledger unless --no-witness\n\
 fix_mode:\n\
   - no --fix surface is implemented in this release\n\
 next_steps:\n\

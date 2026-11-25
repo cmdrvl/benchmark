@@ -12,6 +12,7 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(error) => return handle_cli_error(error, &raw_args),
     };
+    let run_info = witness_run_info(&cli);
     let stderr_capture = StderrCapture::start();
     let result = benchmark::execute(cli);
     let captured_stderr = stderr_capture.finish();
@@ -22,6 +23,13 @@ fn main() -> ExitCode {
                 replay_stderr(&captured_stderr);
             }
             print!("{}", execution.stdout);
+            // Witness recording is best effort: it never changes the exit code (R-017).
+            if let Some(info) = run_info
+                && let Err(error) = benchmark::witness::record_run(&info, &execution)
+                && execution.outcome != Outcome::Refusal
+            {
+                eprintln!("benchmark: witness: {error}");
+            }
             ExitCode::from(execution.exit_code())
         }
         Err(error) => {
@@ -32,6 +40,19 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// A scoring run is the only thing that is witnessed, and `--no-witness` opts out (R-008).
+fn witness_run_info(cli: &Cli) -> Option<benchmark::witness::RunInfo> {
+    if cli.no_witness || cli.describe || cli.schema || cli.robot_triage || cli.command.is_some() {
+        return None;
+    }
+    Some(benchmark::witness::RunInfo {
+        candidate: cli.candidate.clone()?,
+        assertions: cli.assertions.clone()?,
+        key: cli.key.clone()?,
+        lockfiles: cli.lock.clone(),
+    })
 }
 
 fn handle_cli_error(error: clap::Error, raw_args: &[String]) -> ExitCode {

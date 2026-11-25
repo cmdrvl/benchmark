@@ -82,7 +82,7 @@ Doctor mode does not read candidates, assertions, lockfiles, fixture paths, stdi
 
 ## Configuration footprint
 
-`benchmark` has no durable home config, state, or cache surface. Candidates, assertions, and lockfiles are read only from explicit CLI paths, and score reports render to stdout unless the operator redirects them or supplies another explicit output path in a surrounding workflow.
+`benchmark` has no home config or cache surface. Candidates, assertions, and lockfiles are read only from explicit CLI paths, and score reports render to stdout unless the operator redirects them or supplies another explicit output path in a surrounding workflow. The one managed state path is the ambient witness ledger (`$EPISTEMIC_WITNESS`, else `~/.cmdrvl/state/witness/witness.jsonl`): every scoring run appends one JSONL record (inputs hashed with BLAKE3, outcome, exit code, output hash) unless `--no-witness` is passed. `benchmark witness query|last|count` reads it back; `doctor` never touches it.
 
 The doctor JSON surfaces this contract under `config_footprint`, including the canonical CMD+RVL root (`~/.cmdrvl`) and the shared migration/deprecation ledgers. `legacy_migration_required` is `false` because the current operator surface has no legacy implicit paths to migrate.
 
@@ -97,15 +97,20 @@ benchmark --describe                  # the operator manifest
 benchmark capabilities --json         # identical document
 benchmark robot-docs guide            # bounded agent guide
 benchmark --robot-triage              # compact read-only triage JSON
-benchmark doctor health --json        # read-only health report
+benchmark --schema                    # JSON Schema for benchmark.v0 stdout
+benchmark doctor --json               # cmdrvl.doctor.v1 health (exit 1 if unhealthy)
+benchmark doctor triage --json        # same schema, adds next_actions
+benchmark witness query --json        # ledger records ([] when none; exit 0)
 ```
+
+`doctor health` and `--robot-triage` remain as aliases of `doctor` and `doctor triage`.
 
 The manifest declares:
 
 - every argument and option with a type (`file_path`, `string`, repeatable `--lock`, enum `--render`);
 - exit codes: `0` PASS, `1` FAIL (also doctor unhealthy), `2` REFUSAL or usage error;
 - every refusal code the source can emit (`E_IO`, `E_BAD_ASSERTIONS`, `E_EMPTY_ASSERTIONS`, `E_KEY_NOT_FOUND`, `E_KEY_NOT_UNIQUE`, `E_KEY_NULL`, `E_FORMAT_DETECT`, `E_INPUT_NOT_LOCKED`, `E_INPUT_DRIFT`);
-- side effects: reads only the paths you pass, writes nothing, no network, no ambient witness ledger;
+- side effects: reads only the paths you pass, no network; each scoring run appends one record to the witness ledger (`$EPISTEMIC_WITNESS`, else `~/.cmdrvl/state/witness/witness.jsonl`) unless you pass `--no-witness`, and a ledger failure never changes the exit code;
 - determinism: the same candidate bytes + assertion bytes + key column always give a byte-identical report, and the assertion set is a frozen input (part of the cache key).
 
 ---

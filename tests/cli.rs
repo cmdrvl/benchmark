@@ -30,6 +30,8 @@ fn fixture_cli(candidate: &str, assertions: &str, lockfiles: &[&str], json: bool
         render: None,
         robot_triage: false,
         describe: false,
+        schema: false,
+        no_witness: true,
         command: None,
     }
 }
@@ -198,7 +200,8 @@ fn bench_u_top_level_robot_triage_returns_json() -> Result<(), Box<dyn std::erro
     assert_eq!(execution.outcome, Outcome::Pass);
     assert_eq!(execution.exit_code(), 0);
     let payload: serde_json::Value = serde_json::from_str(&execution.stdout)?;
-    assert_eq!(payload["schema"], "benchmark.doctor.triage.v1");
+    assert_eq!(payload["schema_version"], "cmdrvl.doctor.v1");
+    assert_eq!(payload["mode"], "triage");
     assert_eq!(payload["ok"], true);
     assert_eq!(payload["read_only"], true);
     Ok(())
@@ -361,6 +364,8 @@ fn bench_u_execute_returns_summary_fail_with_exit_1() -> Result<(), Box<dyn std:
         render: Some(benchmark::cli::SummaryRenderMode::Summary),
         robot_triage: false,
         describe: false,
+        schema: false,
+        no_witness: true,
         command: None,
     })?;
 
