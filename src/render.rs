@@ -119,15 +119,20 @@ fn render_report_summary_tsv(report: &BenchmarkReport) -> String {
 }
 
 fn render_failure(failure: &crate::report::FailureRecord) -> String {
-    let actual = failure.actual.as_deref().unwrap_or("null");
-    let mut rendered = format!(
-        "FAIL {} {} expected={} actual={} compare_as={}",
-        failure.entity,
-        failure.field,
-        failure.expected,
-        actual,
-        failure.compare_as.label(),
-    );
+    let mut rendered = format!("FAIL {} {}", failure.entity, failure.field);
+    if let Some(expected) = failure.expected.as_deref() {
+        rendered.push_str(&format!(" expected={expected}"));
+    } else {
+        rendered.push_str(&format!(" expected_hash={}", failure.expected_hash));
+    }
+    if let Some(actual) = failure.actual.as_deref() {
+        rendered.push_str(&format!(" actual={actual}"));
+    } else if let Some(actual_hash) = failure.actual_hash.as_deref() {
+        rendered.push_str(&format!(" actual_hash={actual_hash}"));
+    } else {
+        rendered.push_str(" actual=null");
+    }
+    rendered.push_str(&format!(" compare_as={}", failure.compare_as.label()));
 
     if let Some(tolerance) = &failure.tolerance {
         rendered.push_str(&format!(" tolerance={}", format_tolerance(tolerance)));

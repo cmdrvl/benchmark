@@ -50,7 +50,11 @@ fn witness_run_info(cli: &Cli) -> Option<benchmark::witness::RunInfo> {
     Some(benchmark::witness::RunInfo {
         candidate: cli.candidate.clone()?,
         assertions: cli.assertions.clone()?,
-        key: cli.key.clone()?,
+        key: cli.key.clone().or_else(|| {
+            cli.profile
+                .as_ref()
+                .map(|path| format!("profile:{}", path.display()))
+        })?,
         lockfiles: cli.lock.clone(),
     })
 }

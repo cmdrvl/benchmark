@@ -13,6 +13,7 @@ const DUPLICATE_SAMPLE_LIMIT: usize = 10;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyCheckResult {
     pub key_column: String,
+    pub key_columns: Vec<String>,
     pub benchmarked_rows: usize,
 }
 
@@ -20,19 +21,37 @@ pub fn validate_key(
     candidate: &LoadedCandidate,
     key_column: impl Into<String>,
 ) -> Result<KeyCheckResult, KeyCheckError> {
-    let key_column = key_column.into();
-    ensure_key_exists(candidate, &key_column)?;
+    validate_keys(candidate, vec![key_column.into()])
+}
+
+pub fn validate_keys(
+    candidate: &LoadedCandidate,
+    key_columns: Vec<String>,
+) -> Result<KeyCheckResult, KeyCheckError> {
+    let key_column = key_columns.join(" + ");
+    for column in &key_columns {
+        ensure_key_exists(candidate, column)?;
+    }
 
     let relation_identifier = sql_identifier(candidate.relation_name());
-    let key_identifier = sql_identifier(&key_column);
-    let key_value = format!("CAST({key_identifier} AS VARCHAR)");
-    let key_trimmed = format!("TRIM({key_value})");
+    let key_identifiers = key_columns
+        .iter()
+        .map(|column| sql_identifier(column))
+        .collect::<Vec<_>>();
+    let key_values = key_identifiers
+        .iter()
+        .map(|identifier| format!("CAST({identifier} AS VARCHAR)"))
+        .collect::<Vec<_>>();
+    let key_trimmed = key_values
+        .iter()
+        .map(|value| ascii_trim_sql(value))
+        .collect::<Vec<_>>();
 
     let sample_entities = duplicate_entities(
         candidate,
         &relation_identifier,
-        &key_identifier,
-        &key_value,
+        &key_identifiers,
+        &key_values,
         &key_trimmed,
     )
     .map_err(|source| KeyCheckError::Query {
@@ -49,7 +68,7 @@ pub fn validate_key(
     let null_rows = null_or_blank_row_count(
         candidate,
         &relation_identifier,
-        &key_identifier,
+        &key_identifiers,
         &key_trimmed,
     )
     .map_err(|source| KeyCheckError::Query {
@@ -75,6 +94,7 @@ pub fn validate_key(
 
     Ok(KeyCheckResult {
         key_column,
+        key_columns,
         benchmarked_rows,
     })
 }
@@ -175,25 +195,51 @@ fn ensure_key_exists(candidate: &LoadedCandidate, key_column: &str) -> Result<()
 fn duplicate_entities(
     candidate: &LoadedCandidate,
     relation_identifier: &str,
-    key_identifier: &str,
-    key_value: &str,
-    key_trimmed: &str,
+    key_identifiers: &[String],
+    key_values: &[String],
+    key_trimmed: &[String],
 ) -> duckdb::Result<Vec<String>> {
+    let key_values_sql = key_trimmed
+        .iter()
+        .enumerate()
+        .map(|(index, value)| format!("{value} AS key_{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let non_blank = key_identifiers
+        .iter()
+        .zip(key_trimmed)
+        .map(|(identifier, trimmed)| format!("{identifier} IS NOT NULL AND {trimmed} <> ''"))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let group_by = (0..key_values.len())
+        .map(|index| (index + 1).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let order_by = (0..key_values.len())
+        .map(|index| format!("key_{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
     let sql = format!(
-        "SELECT {key_value} AS entity \
+        "SELECT {key_values_sql} \
          FROM {relation_identifier} \
-         WHERE {key_identifier} IS NOT NULL AND {key_trimmed} <> '' \
-         GROUP BY entity \
+         WHERE {non_blank} \
+         GROUP BY {group_by} \
          HAVING COUNT(*) > 1 \
-         ORDER BY entity \
+         ORDER BY {order_by} \
          LIMIT {DUPLICATE_SAMPLE_LIMIT}"
     );
     let mut statement = candidate.connection().prepare(&sql)?;
-    let rows = statement.query_map([], |row| row.get(0))?;
+    let rows = statement.query_map([], |row| {
+        let mut values = Vec::with_capacity(key_values.len());
+        for index in 0..key_values.len() {
+            values.push(row.get::<_, String>(index)?);
+        }
+        Ok(values)
+    })?;
 
     let mut sample_entities = Vec::new();
     for row in rows {
-        sample_entities.push(row?);
+        sample_entities.push(row?.join("|"));
     }
     Ok(sample_entities)
 }
@@ -201,13 +247,19 @@ fn duplicate_entities(
 fn null_or_blank_row_count(
     candidate: &LoadedCandidate,
     relation_identifier: &str,
-    key_identifier: &str,
-    key_trimmed: &str,
+    key_identifiers: &[String],
+    key_trimmed: &[String],
 ) -> duckdb::Result<i64> {
+    let invalid_key = key_identifiers
+        .iter()
+        .zip(key_trimmed)
+        .map(|(identifier, trimmed)| format!("{identifier} IS NULL OR {trimmed} = ''"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
     let sql = format!(
         "SELECT COUNT(*) \
          FROM {relation_identifier} \
-         WHERE {key_identifier} IS NULL OR {key_trimmed} = ''"
+         WHERE {invalid_key}"
     );
     candidate.connection().query_row(&sql, [], |row| row.get(0))
 }
@@ -231,6 +283,20 @@ fn sql_identifier(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 
+const ASCII_TRIM_CHARS: &str = " \t";
+
+pub(crate) fn ascii_trim(value: &str) -> &str {
+    value.trim_matches([' ', '\t'])
+}
+
+fn ascii_trim_sql(value: &str) -> String {
+    format!("TRIM({value}, '{}')", sql_string_literal(ASCII_TRIM_CHARS))
+}
+
+fn sql_string_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -243,7 +309,9 @@ mod tests {
 
     use crate::candidate::LoadedCandidate;
 
-    use super::{E_KEY_NOT_FOUND, E_KEY_NOT_UNIQUE, E_KEY_NULL, KeyCheckError, validate_key};
+    use super::{
+        E_KEY_NOT_FOUND, E_KEY_NOT_UNIQUE, E_KEY_NULL, KeyCheckError, validate_key, validate_keys,
+    };
 
     static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -359,6 +427,30 @@ mod tests {
 
         assert_eq!(result.key_column, "comp_id");
         assert_eq!(result.benchmarked_rows, 2);
+        Ok(())
+    }
+
+    #[allow(non_snake_case)]
+    #[test]
+    fn BENCH_U014_composite_keys_are_ascii_trimmed_and_duplicates_refuse()
+    -> Result<(), Box<dyn Error>> {
+        let candidate = TempCandidate::write(
+            "composite.csv",
+            "account,region,value\n A\t,West\t,one\nA,West,two\nB,East,three\n",
+        )?;
+        let loaded = LoadedCandidate::load(candidate.path())?;
+
+        let error = match validate_keys(&loaded, vec!["account".to_owned(), "region".to_owned()]) {
+            Ok(result) => return Err(format!("unexpectedly validated key: {result:?}").into()),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.refusal_code(), E_KEY_NOT_UNIQUE);
+        assert!(matches!(
+            error,
+            KeyCheckError::KeyNotUnique { ref sample_entities, .. }
+                if sample_entities == &vec!["A|West".to_owned()]
+        ));
         Ok(())
     }
 }

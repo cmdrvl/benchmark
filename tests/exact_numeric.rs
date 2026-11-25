@@ -36,6 +36,7 @@ impl CaseDir {
                 labels.to_str().unwrap(),
                 "--key",
                 "row_id",
+                "--explicit",
                 "--json",
             ])
             .output()

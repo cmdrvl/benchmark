@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/cmdrvl/benchmark/benchmark.schema.json",
   "title": "benchmark.v0",
-  "description": "JSON on stdout of `benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json`: a score report on PASS (exit 0) or FAIL (exit 1), or a refusal envelope on exit 2.",
+  "description": "JSON on stdout of `benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --json`: a score report on PASS (exit 0) or FAIL (exit 1), or a refusal envelope on exit 2. Failure cell values are redacted by default; use --explicit to restore them.",
   "oneOf": [
     { "$ref": "#/definitions/report" },
     { "$ref": "#/definitions/refusal_envelope" }
@@ -73,12 +73,14 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["entity", "field", "expected", "actual", "compare_as", "severity"],
+              "required": ["entity", "field", "expected", "actual", "expected_hash", "actual_hash", "compare_as", "severity"],
             "properties": {
               "entity": { "type": "string" },
               "field": { "type": "string" },
-              "expected": { "type": "string" },
+              "expected": { "type": ["string", "null"] },
               "actual": { "type": ["string", "null"] },
+              "expected_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "actual_hash": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
               "compare_as": { "type": "string" },
               "tolerance": { "type": ["number", "null"] },
               "severity": { "enum": ["critical", "major", "minor"] },

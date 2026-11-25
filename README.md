@@ -128,7 +128,7 @@ You provide:
 
 - one candidate artifact that materializes to one row-oriented relation
 - one JSONL assertion file of `(entity, field, expected)` facts
-- one stable key column
+- one stable key column, or a composite key supplied as `--key col_a,col_b` or a JSON profile
 
 `benchmark` returns:
 
@@ -246,8 +246,10 @@ Current JSON shape:
     {
       "entity": "comp_3",
       "field": "u8:adj_location",
-      "expected": "5.0%",
-      "actual": "5.5%",
+      "expected": null,
+      "actual": null,
+      "expected_hash": "sha256:<64 lowercase hex digits>",
+      "actual_hash": "sha256:<64 lowercase hex digits>",
       "compare_as": "percent",
       "tolerance": 0.01,
       "severity": "major",
@@ -266,7 +268,9 @@ Current JSON shape:
 }
 ```
 
-The policy signal is intentionally coarse and fully derived from the raw score:
+Failure `expected` and `actual` values are redacted by default; their deterministic opaque
+SHA-256 hashes remain for correlation. Add `--explicit` when a trusted operator needs the raw
+cell values. The policy signal is intentionally coarse and fully derived from the raw score:
 
 - `HIGH` = no failures and no skips
 - `ACCEPTABLE` = no failures but one or more skips
@@ -288,7 +292,7 @@ quality_band: LOW (assertion_failures_present)
 accuracy: 0.995
 coverage: 0.995
 
-FAIL comp_3 u8:adj_location expected=5.0% actual=5.5% compare_as=percent tolerance=0.01
+FAIL comp_3 u8:adj_location expected_hash=sha256:<64 lowercase hex digits> actual_hash=sha256:<64 lowercase hex digits> compare_as=percent tolerance=0.01
 SKIP comp_7 u8:cap_rate reason=SKIP_ENTITY
 ```
 
@@ -337,7 +341,7 @@ Why skips are exit `1`:
 
 That means:
 
-- one stable key column named by `--key`
+- one stable key column named by `--key`, or an ordered composite key named by comma-separated `--key` columns/profile
 - scalar fields addressable by column name
 - one row per entity
 
@@ -377,7 +381,7 @@ Fields:
 
 | Field | Meaning |
 |-------|---------|
-| `entity` | row key value to match against `--key` |
+| `entity` | row key value to match against `--key`; composite keys use a JSON string array such as `["A","West"]` |
 | `field` | candidate column name |
 | `expected` | expected value |
 | `compare_as` | `string`, `number`, `percent`, or `date` |

@@ -1,6 +1,8 @@
 use std::{
+    fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use benchmark::{
@@ -25,6 +27,8 @@ fn fixture_cli(candidate: &str, assertions: &str, lockfiles: &[&str], json: bool
         candidate: Some(fixture(candidate)),
         assertions: Some(fixture(assertions)),
         key: Some("comp_id".to_owned()),
+        profile: None,
+        explicit: true,
         lock: lockfiles.iter().map(|path| fixture(path)).collect(),
         json,
         render: None,
@@ -64,6 +68,76 @@ fn sample_report(outcome: AssertionOutcome) -> BenchmarkReport {
             detail: None,
         }],
     )
+}
+
+static COMPOSITE_CASE: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn bench_i_composite_profile_ascii_trim_and_default_redaction()
+-> Result<(), Box<dyn std::error::Error>> {
+    let id = COMPOSITE_CASE.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!("benchmark-c6a-{id}"));
+    fs::create_dir(&root)?;
+    let candidate = root.join("candidate.csv");
+    let assertions = root.join("assertions.jsonl");
+    let profile = root.join("profile.json");
+    fs::write(
+        &candidate,
+        "account,region,actual\n A\t,West\t,ACTUAL_CANARY\nB,East,stable\n",
+    )?;
+    fs::write(
+        &assertions,
+        r#"{"entity":"[\"A\",\"West\"]","field":"actual","expected":"EXPECTED_CANARY"}"#,
+    )?;
+    fs::write(&profile, r#"{"key":["account","region"]}"#)?;
+
+    let run = |explicit| {
+        execute(Cli {
+            candidate: Some(candidate.clone()),
+            assertions: Some(assertions.clone()),
+            key: None,
+            profile: Some(profile.clone()),
+            explicit,
+            lock: Vec::new(),
+            json: true,
+            render: None,
+            robot_triage: false,
+            describe: false,
+            schema: false,
+            no_witness: true,
+            command: None,
+        })
+    };
+
+    let redacted = run(false)?;
+    assert_eq!(redacted.outcome, Outcome::Fail);
+    let redacted_json: serde_json::Value = serde_json::from_str(&redacted.stdout)?;
+    assert_eq!(redacted_json["key_column"], "account + region");
+    assert!(redacted_json["failures"][0]["expected"].is_null());
+    assert!(redacted_json["failures"][0]["actual"].is_null());
+    assert!(
+        redacted_json["failures"][0]["expected_hash"]
+            .as_str()
+            .is_some_and(|hash| hash.starts_with("sha256:"))
+    );
+    assert!(
+        redacted_json["failures"][0]["actual_hash"]
+            .as_str()
+            .is_some_and(|hash| hash.starts_with("sha256:"))
+    );
+    assert!(!redacted.stdout.contains("EXPECTED_CANARY"));
+    assert!(!redacted.stdout.contains("ACTUAL_CANARY"));
+
+    let explicit = run(true)?;
+    let explicit_json: serde_json::Value = serde_json::from_str(&explicit.stdout)?;
+    assert_eq!(explicit_json["failures"][0]["expected"], "EXPECTED_CANARY");
+    assert_eq!(explicit_json["failures"][0]["actual"], "ACTUAL_CANARY");
+
+    fs::remove_file(candidate)?;
+    fs::remove_file(assertions)?;
+    fs::remove_file(profile)?;
+    fs::remove_dir(root)?;
+    Ok(())
 }
 
 #[allow(non_snake_case)]
@@ -148,6 +222,8 @@ fn bench_u_help_mentions_expected_flags() {
     assert!(help.contains("CANDIDATE"));
     assert!(help.contains("--assertions"));
     assert!(help.contains("--key"));
+    assert!(help.contains("--profile"));
+    assert!(help.contains("--explicit"));
     assert!(help.contains("--lock"));
     assert!(help.contains("--json"));
     assert!(help.contains("--render"));
@@ -216,7 +292,7 @@ fn bench_u_top_level_capabilities_and_robot_docs_aliases_work()
     assert_eq!(payload["schema_version"], "operator.v1");
     assert_eq!(
         payload["invocation"]["usage"][0],
-        "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>]"
+        "benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>] [--explicit]"
     );
 
     let docs = execute(Cli::parse_from(["benchmark", "robot-docs", "guide"]))?;
@@ -225,7 +301,7 @@ fn bench_u_top_level_capabilities_and_robot_docs_aliases_work()
     assert!(docs.stdout.contains("benchmark capabilities --json"));
     assert!(
         docs.stdout
-            .contains("benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json")
+            .contains("benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --json")
     );
     assert!(
         docs.stdout
@@ -359,6 +435,8 @@ fn bench_u_execute_returns_summary_fail_with_exit_1() -> Result<(), Box<dyn std:
             "tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl",
         )),
         key: Some("comp_id".to_owned()),
+        profile: None,
+        explicit: true,
         lock: Vec::new(),
         json: false,
         render: Some(benchmark::cli::SummaryRenderMode::Summary),

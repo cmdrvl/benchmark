@@ -157,7 +157,7 @@ fn triage_payload() -> Value {
     let mut next_actions = vec![
         "Use benchmark capabilities --json for the machine-readable CLI contract.".to_owned(),
         "Use benchmark robot-docs guide for the agent-oriented command guide.".to_owned(),
-        "Use benchmark <candidate> --assertions <gold.jsonl> --key <column> --json for a score report.".to_owned(),
+        "Use benchmark <candidate> --assertions <gold.jsonl> (--key <column>[,<column>...] | --profile <file>) --json for a score report.".to_owned(),
     ];
     if !healthy {
         next_actions.insert(
@@ -387,9 +387,9 @@ agent_entrypoints:\n\
   benchmark capabilities --json\n\
   benchmark robot-docs guide\n\
 scoring:\n\
-  benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json\n\
-  benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --render summary\n\
-  benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --lock <LOCKFILE> --json\n\
+  benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --json\n\
+  benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --render summary\n\
+  benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --lock <LOCKFILE> --json\n\
   add --no-witness to keep a run out of the ambient witness ledger\n\
 witness:\n\
   benchmark witness query --json\n\
@@ -404,7 +404,7 @@ commands:\n\
 exit_codes:\n\
   0 healthy / PASS, 1 unhealthy / FAIL, 2 refusal or usage error\n\
 composition:\n\
-  benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json > benchmark.json\n\
+  benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --json > benchmark.json\n\
   assess benchmark.json <other-artifacts> --policy <policy.yaml> --json > decision.json\n\
   pack seal benchmark.json decision.json --output evidence/\n\
 read_only:\n\
@@ -416,5 +416,5 @@ fix_mode:\n\
   - no --fix surface is implemented in this release\n\
 next_steps:\n\
   - use benchmark capabilities --json for the machine-readable CLI contract\n\
-  - use benchmark <candidate> --assertions <gold.jsonl> --key <column> --json for score reports"
+  - use benchmark <candidate> --assertions <gold.jsonl> (--key <column>[,<column>...] | --profile <file>) --json for score reports"
 }

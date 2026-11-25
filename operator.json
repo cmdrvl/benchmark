@@ -10,7 +10,7 @@
   "invocation": {
     "binary": "benchmark",
     "usage": [
-      "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>]",
+      "benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>] [--explicit]",
       "benchmark --describe",
       "benchmark --schema",
       "benchmark --robot-triage",
@@ -34,8 +34,10 @@
     }
   ],
   "options": [
-    { "name": "assertions", "flag": "--assertions", "type": "file_path", "required": true, "description": "Human-validated assertion file (JSONL). Frozen input: the cache key is (candidate bytes, assertion bytes, key column)." },
-    { "name": "key", "flag": "--key", "type": "string", "required": true, "description": "Key column used to look up each assertion's entity in the candidate" },
+    { "name": "assertions", "flag": "--assertions", "type": "file_path", "required": true, "description": "Human-validated assertion file (JSONL). Frozen input: the cache key is (candidate bytes, assertion bytes, key columns/profile)." },
+    { "name": "key", "flag": "--key", "type": "string", "description": "One key column or a comma-separated composite key used to look up each assertion entity; conflicts with --profile" },
+    { "name": "profile", "flag": "--profile", "type": "file_path", "description": "Frozen JSON profile containing a key or key_columns string array; conflicts with --key" },
+    { "name": "explicit", "flag": "--explicit", "type": "flag", "description": "Opt in to raw expected and actual cell values in failure output; default reports emit opaque sha256 hashes" },
     { "name": "lock", "flag": "--lock", "type": "file_path", "repeatable": true, "description": "Verify the candidate is a member of these lock.v0 lockfiles before scoring; supports sha256: and blake3: bytes_hash values" },
     { "name": "json", "flag": "--json", "type": "flag", "description": "Emit the machine-readable benchmark.v0 JSON report" },
     { "name": "render", "flag": "--render", "type": "enum", "values": ["summary", "summary-tsv"], "description": "Emit a one-line summary or a TSV header and row instead of the full report (conflicts with --json)" },
@@ -79,13 +81,14 @@
     { "code": "E_IO", "message": "Candidate, assertions or lockfile could not be read", "action": "fix the path or permissions and rerun" },
     { "code": "E_BAD_ASSERTIONS", "message": "Assertions JSONL is malformed or semantically invalid", "action": "fix the assertion file and rerun" },
     { "code": "E_EMPTY_ASSERTIONS", "message": "Assertions file contains zero valid assertions", "action": "supply a non-empty assertion set" },
-    { "code": "E_KEY_NOT_FOUND", "message": "Candidate does not contain the requested key column", "action": "pass an existing column to --key" },
+    { "code": "E_KEY_NOT_FOUND", "message": "Candidate does not contain the requested key column", "action": "pass existing columns to --key or fix the profile" },
     { "code": "E_KEY_NOT_UNIQUE", "message": "Candidate key values are ambiguous", "action": "canonicalize the candidate or choose a unique key" },
     { "code": "E_KEY_NULL", "message": "Candidate key values include null or blank values", "action": "clean the candidate key column" },
     { "code": "E_FORMAT_DETECT", "message": "Candidate format is unsupported or is not one row-oriented relation", "action": "supply CSV, JSON, JSONL or Parquet with one row per record" },
     { "code": "E_INPUT_NOT_LOCKED", "message": "Candidate is not present in the supplied lockfiles", "action": "pass the correct --lock or lock the candidate first", "flag": "--lock" },
     { "code": "E_INPUT_DRIFT", "message": "Candidate hash does not match the lock member", "action": "use the locked file or regenerate the lock", "flag": "--lock" },
-    { "code": "E_UNSUPPORTED_HASH_ALGORITHM", "message": "Lock member uses an unsupported bytes_hash algorithm prefix", "action": "regenerate the lock with sha256 or blake3", "flag": "--lock" }
+    { "code": "E_UNSUPPORTED_HASH_ALGORITHM", "message": "Lock member uses an unsupported bytes_hash algorithm prefix", "action": "regenerate the lock with sha256 or blake3", "flag": "--lock" },
+    { "code": "E_PROFILE_INVALID", "message": "Profile is unreadable, malformed, or does not define a valid key array", "action": "fix the profile or use --key" }
   ],
   "env_vars": [
     { "name": "EPISTEMIC_WITNESS", "description": "Witness ledger path; overrides ~/.cmdrvl/state/witness/witness.jsonl" },
@@ -109,7 +112,7 @@
     "downstream": ["assess", "pack"]
   },
   "capabilities": {
-    "profile_aware": false,
+    "profile_aware": true,
     "streaming": false,
     "agent_surfaces": {
       "global_json": "benchmark --json",
@@ -126,16 +129,16 @@
     },
     "determinism": {
       "deterministic": true,
-      "statement": "The same candidate bytes, assertion set bytes and key column always produce a byte-identical report.",
+      "statement": "The same candidate bytes, assertion set bytes and key columns/profile always produce a byte-identical report; raw failure cells require --explicit.",
       "frozen_inputs": ["assertions"],
-      "cache_key": ["candidate_hash", "assertions_hash", "key_column"]
+      "cache_key": ["candidate_hash", "assertions_hash", "key_columns", "profile"]
     }
   },
   "composition": {
     "role": "gold_set_scorer",
     "position": "before_assess",
     "canonical_chain": [
-      "benchmark <CANDIDATE> --assertions <FILE> --key <COLUMN> --json > benchmark.json",
+      "benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --json > benchmark.json",
       "assess benchmark.json <other-artifacts> --policy <policy.yaml> --json > decision.json",
       "pack seal benchmark.json decision.json --output evidence/"
     ],

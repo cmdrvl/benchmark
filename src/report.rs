@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::{
     REPORT_VERSION, TOOL, assertions::Severity, compare::CompareAs, lock_check::InputVerification,
@@ -58,6 +59,14 @@ pub struct BenchmarkReport {
 
 impl BenchmarkReport {
     pub fn from_evaluated(context: ReportContext, evaluated: Vec<EvaluatedAssertion>) -> Self {
+        Self::from_evaluated_with_explicit(context, evaluated, true)
+    }
+
+    pub fn from_evaluated_with_explicit(
+        context: ReportContext,
+        evaluated: Vec<EvaluatedAssertion>,
+        explicit: bool,
+    ) -> Self {
         let summary = Summary::from_evaluated(&evaluated);
         let outcome = if summary.failed == 0 && summary.skipped == 0 {
             ReportOutcome::Pass
@@ -67,7 +76,7 @@ impl BenchmarkReport {
 
         let failures = evaluated
             .iter()
-            .filter_map(EvaluatedAssertion::failure_record)
+            .filter_map(|assertion| assertion.failure_record(explicit))
             .collect();
         let skipped = evaluated
             .iter()
@@ -256,7 +265,7 @@ pub struct EvaluatedAssertion {
 }
 
 impl EvaluatedAssertion {
-    fn failure_record(&self) -> Option<FailureRecord> {
+    fn failure_record(&self, explicit: bool) -> Option<FailureRecord> {
         if self.outcome != AssertionOutcome::Fail {
             return None;
         }
@@ -264,8 +273,10 @@ impl EvaluatedAssertion {
         Some(FailureRecord {
             entity: self.entity.clone(),
             field: self.field.clone(),
-            expected: self.expected.clone(),
-            actual: self.actual.clone(),
+            expected: explicit.then(|| self.expected.clone()),
+            actual: explicit.then(|| self.actual.clone()).flatten(),
+            expected_hash: hash_cell(&self.expected),
+            actual_hash: self.actual.as_deref().map(hash_cell),
             compare_as: self.compare_as,
             tolerance: self.tolerance.clone(),
             severity: self.severity,
@@ -293,12 +304,20 @@ impl EvaluatedAssertion {
 pub struct FailureRecord {
     pub entity: String,
     pub field: String,
-    pub expected: String,
+    pub expected: Option<String>,
     pub actual: Option<String>,
+    pub expected_hash: String,
+    pub actual_hash: Option<String>,
     pub compare_as: CompareAs,
     pub tolerance: Option<serde_json::Number>,
     pub severity: Severity,
     pub source: Option<String>,
+}
+
+fn hash_cell(value: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    format!("sha256:{:x}", hasher.finalize())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -113,6 +113,8 @@ fn BENCH_I901_perf_smoke_integrated_path_captures_phase_timings()
         candidate: Some(fixture.candidate.clone()),
         assertions: Some(fixture.assertions.clone()),
         key: Some("comp_id".to_owned()),
+        profile: None,
+        explicit: false,
         lock: Vec::new(),
         json: true,
         render: None,

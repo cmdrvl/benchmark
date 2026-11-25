@@ -74,7 +74,9 @@ Arguments:
 
 Options:
   --assertions <FILE>    Assertion file (JSONL)
-  --key <COLUMN>         Key column for entity lookup in candidate
+  --key <COLUMN>[,<COLUMN>...]  Key column(s) for entity lookup in candidate
+  --profile <FILE>       Frozen JSON profile containing key or key_columns
+  --explicit             Include raw expected and actual failure cells
   --lock <LOCKFILE>      Verify candidate is a member of these lockfiles (repeatable)
   --json                 JSON output
   --robot-triage         Read-only automation triage JSON
@@ -106,7 +108,7 @@ Agent entrypoints:
 
 That means v0 candidates must materialize to a single table-like surface with:
 
-- one stable key column named by `--key`
+- one stable key column named by `--key`, or an ordered composite key named by comma-separated `--key` columns/profile
 - scalar fields addressable by column name
 - one row per entity
 
@@ -156,9 +158,9 @@ Each line is an independent assertion — an expected `(entity, field, value)` t
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `entity` | yes | Row key value — matched against `--key` column in candidate |
+| `entity` | yes | Row key value — matched against `--key` column(s); composite keys use a JSON string array such as `["A","West"]` |
 | `field` | yes | Column name (canonical ID after canon) |
-| `expected` | yes | Expected value (string representation) |
+| `expected` | yes | Expected value (string representation); redacted to `null` by default in failure output |
 | `compare_as` | no | Comparison mode: `string`, `number`, `percent`, or `date`. Default: `string` |
 | `tolerance` | no | Absolute tolerance for `number` or `percent` comparisons |
 | `severity` | no | Assertion importance: `critical`, `major`, or `minor`. Default: `major` |
@@ -232,8 +234,8 @@ This is deliberately coarse. Tournament ranking still uses raw `summary.accuracy
 ## Data model invariants
 
 - `I01` Candidate relation invariant: v0 operates on exactly one row-oriented relation.
-- `I02` Key existence invariant: `--key` must resolve to one concrete candidate column before scoring begins.
-- `I03` Key uniqueness invariant: each benchmarked `entity` maps to at most one candidate row.
+- `I02` Key existence invariant: `--key` or `--profile` must resolve to one or more concrete candidate columns before scoring begins.
+- `I03` Key uniqueness invariant: each benchmarked composite `entity` maps to at most one candidate row.
 - `I04` Key completeness invariant: null or blank key values in benchmarked rows are a refusal, not a skip.
 - `I05` Field lookup invariant: `field` addresses candidate columns by exact canonical name; no fuzzy matching.
 - `I06` Comparison explicitness invariant: every assertion is evaluated under exactly one declared or default `compare_as` mode.
@@ -283,8 +285,10 @@ This is deliberately coarse. Tournament ranking still uses raw `summary.accuracy
     {
       "entity": "comp_3",
       "field": "u8:adj_location",
-      "expected": "5.0%",
-      "actual": "5.5%",
+      "expected": null,
+      "actual": null,
+      "expected_hash": "sha256:<64 lowercase hex digits>",
+      "actual_hash": "sha256:<64 lowercase hex digits>",
       "compare_as": "percent",
       "tolerance": 0.01,
       "severity": "major",
@@ -336,11 +340,13 @@ quality_band: LOW (assertion_failures_present)
 accuracy: 0.995
 coverage: 0.995
 
-FAIL comp_3 u8:adj_location expected=5.0% actual=5.5% compare_as=percent tolerance=0.01
+FAIL comp_3 u8:adj_location expected_hash=sha256:<64 lowercase hex digits> actual_hash=sha256:<64 lowercase hex digits> compare_as=percent tolerance=0.01
 SKIP comp_7 u8:cap_rate reason=SKIP_ENTITY
 ```
 
 Human mode is a rendering of the same report contract, not a separate semantics path.
+Failure cell values are redacted by default; the human renderer shows their deterministic
+opaque hashes. `--explicit` opts into raw `expected` and `actual` values.
 
 ---
 

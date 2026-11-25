@@ -10,7 +10,7 @@ use crate::{
     assertions::{Assertion, AssertionSet},
     candidate::LoadedCandidate,
     compare::{CompareAs, CompareError, compare_values},
-    key_check::KeyCheckResult,
+    key_check::{KeyCheckResult, ascii_trim},
     lock_check::InputVerification,
     report::{AssertionOutcome, BenchmarkReport, EvaluatedAssertion, ReportContext},
 };
@@ -26,6 +26,14 @@ pub enum EngineError {
     ProjectionIndexOverflow { index: i64 },
     #[error("scoring projection returned {actual} rows for {expected} assertions")]
     ProjectionCardinality { expected: usize, actual: usize },
+    #[error(
+        "composite assertion entity '{entity}' has {actual_components} key components; expected {expected_components}"
+    )]
+    InvalidCompositeEntity {
+        entity: String,
+        expected_components: usize,
+        actual_components: usize,
+    },
     #[error("failed to read scoring input '{path}': {source}")]
     Io {
         path: PathBuf,
@@ -69,10 +77,28 @@ pub fn score_candidate(
     key_check: &KeyCheckResult,
     input_verification: Option<InputVerification>,
 ) -> Result<BenchmarkReport, EngineError> {
+    score_candidate_with_explicit(
+        candidate,
+        assertions_path,
+        assertions,
+        key_check,
+        input_verification,
+        true,
+    )
+}
+
+pub fn score_candidate_with_explicit(
+    candidate: &LoadedCandidate,
+    assertions_path: impl AsRef<Path>,
+    assertions: &AssertionSet,
+    key_check: &KeyCheckResult,
+    input_verification: Option<InputVerification>,
+    explicit: bool,
+) -> Result<BenchmarkReport, EngineError> {
     let assertions_path = assertions_path.as_ref();
     let evaluated = evaluate_assertions(candidate, assertions, key_check)?;
 
-    Ok(BenchmarkReport::from_evaluated(
+    Ok(BenchmarkReport::from_evaluated_with_explicit(
         ReportContext {
             candidate: candidate.source().path.display().to_string(),
             candidate_hash: hash_file(&candidate.source().path)?,
@@ -82,6 +108,7 @@ pub fn score_candidate(
             input_verification,
         },
         evaluated,
+        explicit,
     ))
 }
 
@@ -94,7 +121,7 @@ pub fn evaluate_assertions(
         return Ok(Vec::new());
     }
 
-    let projections = project_candidate_values(candidate, assertions, &key_check.key_column)?;
+    let projections = project_candidate_values(candidate, assertions, &key_check.key_columns)?;
     let mut evaluated = Vec::with_capacity(assertions.len());
 
     for (assertion, projection) in assertions.assertions.iter().zip(projections) {
@@ -107,9 +134,9 @@ pub fn evaluate_assertions(
 fn project_candidate_values(
     candidate: &LoadedCandidate,
     assertions: &AssertionSet,
-    key_column: &str,
+    key_columns: &[String],
 ) -> Result<Vec<ProjectionRow>, EngineError> {
-    let sql = build_projection_query(candidate, assertions, key_column);
+    let sql = build_projection_query(candidate, assertions, key_columns)?;
     let mut statement = candidate
         .connection()
         .prepare(&sql)
@@ -169,20 +196,33 @@ fn project_candidate_values(
 fn build_projection_query(
     candidate: &LoadedCandidate,
     assertions: &AssertionSet,
-    key_column: &str,
-) -> String {
+    key_columns: &[String],
+) -> Result<String, EngineError> {
     let relation_identifier = sql_identifier(candidate.relation_name());
-    let key_identifier = sql_identifier(key_column);
+    let assertion_keys = assertions
+        .assertions
+        .iter()
+        .map(|assertion| parse_entity_key(&assertion.entity, key_columns.len()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let key_identifiers = key_columns
+        .iter()
+        .map(|column| sql_identifier(column))
+        .collect::<Vec<_>>();
     let assertion_rows = assertions
         .assertions
         .iter()
         .enumerate()
         .map(|(index, assertion)| {
-            format!(
-                "({index}, '{}', '{}')",
-                sql_string_literal(&assertion.entity),
-                sql_string_literal(&assertion.field),
-            )
+            let key_values = assertion_keys[index]
+                .iter()
+                .map(|value| format!("'{}'", sql_string_literal(value)))
+                .chain(std::iter::once(format!(
+                    "'{}'",
+                    sql_string_literal(&assertion.field)
+                )))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("({index}, {key_values})")
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -205,17 +245,62 @@ fn build_projection_query(
         .collect::<Vec<_>>()
         .join(" ");
 
-    format!(
-        "WITH assertions(assertion_index, entity, field) AS (VALUES {assertion_rows}) \
+    let assertion_columns = (0..key_columns.len())
+        .map(|index| format!("key_{index}"))
+        .chain(std::iter::once("field".to_owned()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let join_conditions = key_identifiers
+        .iter()
+        .enumerate()
+        .map(|(index, identifier)| {
+            format!(
+                "{} = a.key_{index}",
+                ascii_trim_sql(&format!("CAST(c.{identifier} AS VARCHAR)"))
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let first_key_identifier = &key_identifiers[0];
+
+    Ok(format!(
+        "WITH assertions(assertion_index, {assertion_columns}) AS (VALUES {assertion_rows}) \
          SELECT a.assertion_index, \
-                CASE WHEN c.{key_identifier} IS NULL THEN 0 ELSE 1 END AS entity_exists, \
+                CASE WHEN c.{first_key_identifier} IS NULL THEN 0 ELSE 1 END AS entity_exists, \
                 CASE a.field {field_exists_cases} ELSE 0 END AS field_exists, \
                 CASE a.field {actual_cases} ELSE NULL END AS actual \
          FROM assertions AS a \
          LEFT JOIN {relation_identifier} AS c \
-           ON TRIM(CAST(c.{key_identifier} AS VARCHAR)) = a.entity \
+           ON {join_conditions} \
          ORDER BY a.assertion_index"
-    )
+    ))
+}
+
+fn parse_entity_key(entity: &str, key_count: usize) -> Result<Vec<String>, EngineError> {
+    let values = if key_count == 1 {
+        vec![ascii_trim(entity).to_owned()]
+    } else if let Ok(values) = serde_json::from_str::<Vec<String>>(entity) {
+        values
+    } else if entity.contains('|') {
+        entity.split('|').map(str::to_owned).collect()
+    } else if entity.contains(" + ") {
+        entity.split(" + ").map(str::to_owned).collect()
+    } else {
+        vec![entity.to_owned()]
+    };
+
+    if values.len() != key_count || values.iter().any(|value| ascii_trim(value).is_empty()) {
+        return Err(EngineError::InvalidCompositeEntity {
+            entity: entity.to_owned(),
+            expected_components: key_count,
+            actual_components: values.len(),
+        });
+    }
+
+    Ok(values
+        .into_iter()
+        .map(|value| ascii_trim(&value).to_owned())
+        .collect())
 }
 
 fn evaluate_assertion(
@@ -381,6 +466,10 @@ fn sql_identifier(value: &str) -> String {
 
 fn sql_string_literal(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+fn ascii_trim_sql(value: &str) -> String {
+    format!("TRIM({value}, ' \t')")
 }
 
 #[cfg(test)]

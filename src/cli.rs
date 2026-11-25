@@ -16,7 +16,7 @@ pub enum SummaryRenderMode {
     version,
     about = "Score a row-oriented candidate against human-validated assertions",
     long_about = "Score one row-oriented candidate relation against a human-validated JSONL assertion set.",
-    after_long_help = "Agent entrypoints:\n  benchmark --robot-triage\n  benchmark capabilities --json\n  benchmark robot-docs guide\n\nExamples:\n  benchmark tests/fixtures/candidates/smoke/bench_i001_candidate.csv --assertions tests/fixtures/assertions/smoke/bench_i001_gold.jsonl --key comp_id --json\n  benchmark tests/fixtures/candidates/smoke/bench_mixed.csv --assertions tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl --key comp_id --render summary\n  benchmark capabilities --json\n  benchmark robot-docs guide",
+    after_long_help = "Agent entrypoints:\n  benchmark --robot-triage\n  benchmark capabilities --json\n  benchmark robot-docs guide\n\nExamples:\n  benchmark tests/fixtures/candidates/smoke/bench_i001_candidate.csv --assertions tests/fixtures/assertions/smoke/bench_i001_gold.jsonl --key comp_id --json\n  benchmark tests/fixtures/candidates/smoke/bench_mixed.csv --assertions tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl --key comp_id --render summary\n  benchmark candidate.csv --assertions gold.jsonl --profile profile.json --json\n  benchmark capabilities --json\n  benchmark robot-docs guide",
     subcommand_precedence_over_arg = true,
     subcommand_negates_reqs = true
 )]
@@ -36,6 +36,20 @@ pub struct Cli {
         help = "Key column for entity lookup in candidate"
     )]
     pub key: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "key",
+        help = "Frozen JSON profile containing a key or key_columns string array"
+    )]
+    pub profile: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Include raw expected and actual cell values in failure output"
+    )]
+    pub explicit: bool,
 
     #[arg(
         long,
@@ -162,6 +176,8 @@ pub struct BenchmarkCommand {
     pub candidate: PathBuf,
     pub assertions: PathBuf,
     pub key: String,
+    pub profile: Option<PathBuf>,
+    pub explicit: bool,
     pub lockfiles: Vec<PathBuf>,
     pub render_mode: RenderMode,
 }
@@ -175,7 +191,9 @@ impl BenchmarkCommand {
             assertions: cli
                 .assertions
                 .ok_or("missing required argument --assertions <FILE>")?,
-            key: cli.key.ok_or("missing required argument --key <COLUMN>")?,
+            key: cli.key.unwrap_or_default(),
+            profile: cli.profile,
+            explicit: cli.explicit,
             lockfiles: cli.lock,
             render_mode: match (cli.json, cli.render) {
                 (true, _) => RenderMode::Json,

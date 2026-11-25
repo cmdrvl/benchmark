@@ -1,7 +1,10 @@
 #![forbid(unsafe_code)]
 
+use std::{collections::HashSet, fs, path::PathBuf};
+
 pub const TOOL: &str = "benchmark";
 pub const REPORT_VERSION: &str = "benchmark.v0";
+pub const E_PROFILE_INVALID: &str = "E_PROFILE_INVALID";
 
 /// benchmark's operator.v1 manifest. `--describe` and `capabilities --json`
 /// both print exactly this document.
@@ -39,7 +42,9 @@ use engine::EngineError;
 use key_check::KeyCheckError;
 use lock_check::{LockCheckError, verify_candidate};
 use refusal::RefusalEnvelope;
+use serde::Deserialize;
 use serde_json::{Value, json};
+use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -97,7 +102,7 @@ pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
     if cli.robot_triage {
         if has_scoring_args(&cli) {
             return Err(
-                "`benchmark --robot-triage` does not accept candidate, assertions, key, lock, or render arguments"
+                "`benchmark --robot-triage` does not accept candidate, assertions, key, profile, explicit, lock, or render arguments"
                     .into(),
             );
         }
@@ -155,7 +160,9 @@ pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
     if cli.candidate.is_none()
         && cli.assertions.is_none()
         && cli.key.is_none()
+        && cli.profile.is_none()
         && cli.lock.is_empty()
+        && !cli.explicit
     {
         if cli.json {
             return Ok(Execution::new(Outcome::Pass, describe_output()));
@@ -181,6 +188,8 @@ fn has_scoring_args(cli: &Cli) -> bool {
     cli.candidate.is_some()
         || cli.assertions.is_some()
         || cli.key.is_some()
+        || cli.profile.is_some()
+        || cli.explicit
         || !cli.lock.is_empty()
         || cli.render.is_some()
 }
@@ -197,6 +206,8 @@ fn long_help() -> String {
 fn execute_command(
     command: &BenchmarkCommand,
 ) -> Result<report::BenchmarkReport, Box<RefusalEnvelope>> {
+    let key_columns = resolve_key_columns(command)
+        .map_err(|error| Box::new(refusal_from_profile_error(command, &error)))?;
     let assertions = assertions::load_assertions(&command.assertions)
         .map_err(|error| Box::new(refusal_from_assertion_error(command, &error)))?;
 
@@ -211,15 +222,16 @@ fn execute_command(
 
     let candidate = LoadedCandidate::load(&command.candidate)
         .map_err(|error| Box::new(refusal_from_candidate_error(command, &error)))?;
-    let key_check = key_check::validate_key(&candidate, &command.key)
+    let key_check = key_check::validate_keys(&candidate, key_columns)
         .map_err(|error| Box::new(refusal_from_key_check_error(command, &error)))?;
 
-    engine::score_candidate(
+    engine::score_candidate_with_explicit(
         &candidate,
         &command.assertions,
         &assertions,
         &key_check,
         input_verification,
+        command.explicit,
     )
     .map_err(|error| Box::new(refusal_from_engine_error(command, &error)))
 }
@@ -385,6 +397,18 @@ fn refusal_from_engine_error(command: &BenchmarkCommand, error: &EngineError) ->
             assertions::E_IO,
             json!({ "expected": expected, "actual": actual }),
         ),
+        EngineError::InvalidCompositeEntity {
+            entity,
+            expected_components,
+            actual_components,
+        } => (
+            assertions::E_BAD_ASSERTIONS,
+            json!({
+                "entity": entity,
+                "expected_components": expected_components,
+                "actual_components": actual_components,
+            }),
+        ),
         EngineError::Query { .. } => (assertions::E_IO, Value::Null),
     };
 
@@ -406,9 +430,15 @@ fn next_command(command: &BenchmarkCommand) -> String {
         shell_quote(&command.candidate.display().to_string()),
         "--assertions".to_owned(),
         shell_quote(&command.assertions.display().to_string()),
-        "--key".to_owned(),
-        shell_quote(&command.key),
     ];
+
+    if let Some(profile) = &command.profile {
+        parts.push("--profile".to_owned());
+        parts.push(shell_quote(&profile.display().to_string()));
+    } else {
+        parts.push("--key".to_owned());
+        parts.push(shell_quote(&command.key));
+    }
 
     for lockfile in &command.lockfiles {
         parts.push("--lock".to_owned());
@@ -416,8 +446,122 @@ fn next_command(command: &BenchmarkCommand) -> String {
     }
 
     parts.push("--json".to_owned());
+    if command.explicit {
+        parts.push("--explicit".to_owned());
+    }
 
     parts.join(" ")
+}
+
+#[derive(Debug, Error)]
+enum ProfileError {
+    #[error("failed to read profile '{path}': {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to parse profile '{path}': {source}")]
+    Parse {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("invalid profile '{path}': {message}")]
+    Invalid { path: PathBuf, message: String },
+}
+
+#[derive(Debug, Deserialize)]
+struct ProfileFile {
+    key: Option<Vec<String>>,
+    key_columns: Option<Vec<String>>,
+}
+
+fn resolve_key_columns(command: &BenchmarkCommand) -> Result<Vec<String>, ProfileError> {
+    if command.profile.is_some() && !command.key.is_empty() {
+        return Err(ProfileError::Invalid {
+            path: command.profile.clone().unwrap_or_default(),
+            message: "--key and --profile cannot be combined".to_owned(),
+        });
+    }
+
+    if let Some(path) = &command.profile {
+        let contents = fs::read_to_string(path).map_err(|source| ProfileError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let profile: ProfileFile =
+            serde_json::from_str(&contents).map_err(|source| ProfileError::Parse {
+                path: path.clone(),
+                source,
+            })?;
+        let columns = match (profile.key, profile.key_columns) {
+            (Some(_), Some(_)) => {
+                return Err(ProfileError::Invalid {
+                    path: path.clone(),
+                    message: "profile must define only one of 'key' or 'key_columns'".to_owned(),
+                });
+            }
+            (Some(columns), None) | (None, Some(columns)) => columns,
+            (None, None) => {
+                return Err(ProfileError::Invalid {
+                    path: path.clone(),
+                    message: "profile must define a non-empty 'key' or 'key_columns' array"
+                        .to_owned(),
+                });
+            }
+        };
+        return normalize_key_columns(columns).map_err(|message| ProfileError::Invalid {
+            path: path.clone(),
+            message,
+        });
+    }
+
+    if command.key.is_empty() {
+        return Err(ProfileError::Invalid {
+            path: PathBuf::from("--key"),
+            message: "missing required argument --key <COLUMN> or --profile <FILE>".to_owned(),
+        });
+    }
+
+    normalize_key_columns(command.key.split(',').map(str::to_owned).collect()).map_err(|message| {
+        ProfileError::Invalid {
+            path: PathBuf::from("--key"),
+            message,
+        }
+    })
+}
+
+fn normalize_key_columns(columns: Vec<String>) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::with_capacity(columns.len());
+    let mut seen = HashSet::with_capacity(columns.len());
+    for column in columns {
+        let column = column.trim_matches([' ', '\t']).to_owned();
+        if column.is_empty() {
+            return Err("key columns must not be empty".to_owned());
+        }
+        if !seen.insert(column.clone()) {
+            return Err(format!("key column '{column}' was provided more than once"));
+        }
+        normalized.push(column);
+    }
+    if normalized.is_empty() {
+        return Err("at least one key column is required".to_owned());
+    }
+    Ok(normalized)
+}
+
+fn refusal_from_profile_error(command: &BenchmarkCommand, error: &ProfileError) -> RefusalEnvelope {
+    let detail = match error {
+        ProfileError::Io { path, .. } | ProfileError::Parse { path, .. } => {
+            json!({ "path": path.display().to_string() })
+        }
+        ProfileError::Invalid { path, message } => json!({
+            "path": path.display().to_string(),
+            "message": message,
+        }),
+    };
+    refusal_from_parts(command, E_PROFILE_INVALID, error.to_string(), detail)
 }
 
 fn shell_quote(value: &str) -> String {
@@ -453,6 +597,8 @@ mod tests {
             candidate: PathBuf::from("candidate.csv"),
             assertions: PathBuf::from("gold.jsonl"),
             key: "comp_id".to_owned(),
+            profile: None,
+            explicit: false,
             lockfiles: vec![PathBuf::from("candidate.lock.json")],
             render_mode: RenderMode::Human,
         };
@@ -469,6 +615,8 @@ mod tests {
             candidate: Some("candidate.csv".into()),
             assertions: Some("gold.jsonl".into()),
             key: Some("comp_id".to_owned()),
+            profile: None,
+            explicit: false,
             lock: Vec::new(),
             json: true,
             render: None,
@@ -495,6 +643,8 @@ mod tests {
             candidate: PathBuf::from("candidate.csv"),
             assertions: PathBuf::from("gold.jsonl"),
             key: "comp_id".to_owned(),
+            profile: None,
+            explicit: false,
             lockfiles: Vec::new(),
             render_mode: RenderMode::Json,
         };
