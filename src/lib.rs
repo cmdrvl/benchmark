@@ -39,6 +39,7 @@ use assertions::AssertionError;
 use candidate::{CandidateError, LoadedCandidate};
 use clap::CommandFactory;
 use cli::{BenchmarkCommand, Cli, Command, DoctorArgs, DoctorCommand, RobotDocsCommand};
+use cmdrvl_core::redact::RedactionKey;
 use engine::EngineError;
 use key_check::KeyCheckError;
 use lock_check::{LockCheckError, verify_candidate};
@@ -257,19 +258,17 @@ fn resolve_redaction_mode(
         }
     };
 
-    let key = configured_key.map(String::into_bytes);
-    let key = match key {
-        Some(key) if key.len() < 16 => {
-            return Err(Box::new(refusal_from_parts(
+    // Core says only why a key is unusable (empty or too short); the code and message are ours.
+    let key = RedactionKey::from_optional(configured_key.as_deref().map(str::as_bytes)).map_err(
+        |_| {
+            Box::new(refusal_from_parts(
                 command,
                 E_REDACTION_KEY_INVALID,
                 "BENCHMARK_REDACTION_KEY must be at least 16 bytes".to_owned(),
                 json!({}),
-            )));
-        }
-        Some(key) => Some(key),
-        None => None,
-    };
+            ))
+        },
+    )?;
 
     if command.explicit {
         Ok(RedactionMode::explicit())

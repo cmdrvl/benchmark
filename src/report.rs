@@ -1,19 +1,16 @@
-use hmac::{Hmac, Mac};
+use cmdrvl_core::hash::{Algorithm, hash_bytes};
+use cmdrvl_core::redact::{Marker, Namespace, RedactionKey};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 
 use crate::{
     REPORT_VERSION, TOOL, assertions::Severity, compare::CompareAs, lock_check::InputVerification,
 };
 
-type HmacSha256 = Hmac<Sha256>;
-
 /// Redaction mode for one benchmark report.
 pub enum RedactionMode {
     Explicit,
     Ordinal,
-    Keyed(Vec<u8>),
+    Keyed(RedactionKey),
 }
 
 impl RedactionMode {
@@ -25,7 +22,8 @@ impl RedactionMode {
         Self::Ordinal
     }
 
-    pub fn keyed(key: Vec<u8>) -> Self {
+    /// A [`RedactionKey`] can only be built from at least 16 bytes.
+    pub fn keyed(key: RedactionKey) -> Self {
         Self::Keyed(key)
     }
 
@@ -34,18 +32,17 @@ impl RedactionMode {
     }
 }
 
+/// benchmark's own marker text (`v<n>`, `hmac-sha256:<32 hex>`) over core's numbering and HMAC.
 struct Redactor {
     mode: RedactionMode,
-    ordinals: BTreeMap<String, String>,
-    next_ordinal: usize,
+    ordinals: Marker<'static>,
 }
 
 impl Redactor {
     fn new(mode: RedactionMode) -> Self {
         Self {
             mode,
-            ordinals: BTreeMap::new(),
-            next_ordinal: 1,
+            ordinals: Marker::ordinal(),
         }
     }
 
@@ -54,21 +51,13 @@ impl Redactor {
             RedactionMode::Explicit => hash_cell(value),
             RedactionMode::Ordinal => {
                 let canonical = canonical_cell(value);
-                match self.ordinals.get(&canonical) {
-                    Some(reference) => reference.clone(),
-                    None => {
-                        let reference = format!("v{}", self.next_ordinal);
-                        self.next_ordinal += 1;
-                        self.ordinals.insert(canonical, reference.clone());
-                        reference
-                    }
-                }
+                let ordinal = self
+                    .ordinals
+                    .ordinal_of(Namespace::VALUE, canonical.as_bytes());
+                format!("v{ordinal}")
             }
             RedactionMode::Keyed(key) => {
-                let mut mac = HmacSha256::new_from_slice(key)
-                    .expect("HMAC-SHA256 accepts keys of any non-empty length");
-                mac.update(canonical_cell(value).as_bytes());
-                let digest = mac.finalize().into_bytes();
+                let digest = key.hmac_sha256(canonical_cell(value).as_bytes());
                 format!("hmac-sha256:{}", hex_lower(&digest[..16]))
             }
         }
@@ -400,9 +389,7 @@ pub struct FailureRecord {
 }
 
 fn hash_cell(value: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(value.as_bytes());
-    format!("sha256:{:x}", hasher.finalize())
+    hash_bytes(Algorithm::Sha256, value.as_bytes())
 }
 
 fn canonical_cell(value: &str) -> String {

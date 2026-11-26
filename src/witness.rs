@@ -18,6 +18,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use cmdrvl_core::hash::{Algorithm, hash_bytes};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -97,7 +98,7 @@ pub fn build_record(info: &RunInfo, execution: &Execution) -> WitnessRecord {
         if let Ok(bytes) = fs::read(path) {
             inputs.push(WitnessInput {
                 path: path.to_string_lossy().into_owned(),
-                hash: format!("blake3:{}", blake3::hash(&bytes).to_hex()),
+                hash: hash_bytes(Algorithm::Blake3, &bytes),
                 bytes: bytes.len() as u64,
             });
         }
@@ -115,10 +116,7 @@ pub fn build_record(info: &RunInfo, execution: &Execution) -> WitnessRecord {
         }),
         outcome: outcome_label(execution.outcome).to_owned(),
         exit_code: execution.exit_code(),
-        output_hash: format!(
-            "blake3:{}",
-            blake3::hash(execution.stdout.as_bytes()).to_hex()
-        ),
+        output_hash: hash_bytes(Algorithm::Blake3, execution.stdout.as_bytes()),
         ts: timestamp(),
     };
     record.id = record_id(&record);
@@ -141,17 +139,14 @@ fn canonical_json(record: &WitnessRecord) -> String {
 fn record_id(record: &WitnessRecord) -> String {
     let mut blanked = record.clone();
     blanked.id.clear();
-    format!(
-        "blake3:{}",
-        blake3::hash(canonical_json(&blanked).as_bytes()).to_hex()
-    )
+    hash_bytes(Algorithm::Blake3, canonical_json(&blanked).as_bytes())
 }
 
 fn binary_hash() -> String {
     env::current_exe()
         .ok()
         .and_then(|exe| fs::read(exe).ok())
-        .map(|bytes| format!("blake3:{}", blake3::hash(&bytes).to_hex()))
+        .map(|bytes| hash_bytes(Algorithm::Blake3, &bytes))
         .unwrap_or_default()
 }
 
