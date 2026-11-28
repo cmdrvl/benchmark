@@ -367,9 +367,9 @@ fn original_member_path(candidates: &[CandidateMember], member: &Member<'_>) -> 
     candidates
         .iter()
         .find(|candidate| {
-            candidate.lock == member.lock
-                && normalize_lock_member_path(&candidate.member_path) == member.path
-                && candidate.bytes_hash == member.digest
+            candidate.lock.eq(&member.lock)
+                && normalize_lock_member_path(&candidate.member_path).eq(member.path)
+                && candidate.bytes_hash.eq(member.digest)
         })
         .map_or_else(
             || member.path.to_owned(),
