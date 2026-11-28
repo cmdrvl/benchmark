@@ -28,10 +28,9 @@ gag = "1.0.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision", "raw_value"] }
 blake3 = "1"
-# Shared redaction and hashing primitives (bd-8jq, cmd-zjr phase 2). Default features are off on
-# purpose: core's `float-roundtrip` would turn on serde_json/float_roundtrip for this whole build,
-# next to `arbitrary_precision`. Only core's `redact` and `hash` modules are used.
-cmdrvl-core = { git = "https://github.com/cmdrvl/core", rev = "a3dad0b1af2eeb8036625b25f3d9ff94c3a1ef0e", default-features = false }
+# Shared matching, redaction, and hashing primitives. Default features remain off so core's
+# `float-roundtrip` does not turn on serde_json/float_roundtrip next to `arbitrary_precision`.
+cmdrvl-core = { git = "https://github.com/cmdrvl/core", rev = "9cdf14a55f33fd8f426cbeb54fca478885239e7c", default-features = false }
 sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"

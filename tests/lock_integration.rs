@@ -6,9 +6,27 @@ use std::{
 };
 
 use benchmark::lock_check::{LockCheckError, verify_candidate};
+use serde_json::json;
+use sha2::{Digest, Sha256};
 
 fn fixture(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    format!("sha256:{:x}", Sha256::digest(bytes))
+}
+
+fn write_lock(path: &Path, members: &[(&str, &str)]) -> Result<(), Box<dyn std::error::Error>> {
+    let members = members
+        .iter()
+        .map(|(member_path, bytes_hash)| json!({"path": member_path, "bytes_hash": bytes_hash}))
+        .collect::<Vec<_>>();
+    fs::write(
+        path,
+        serde_json::to_vec(&json!({"version": "lock.v0", "members": members}))?,
+    )?;
+    Ok(())
 }
 
 #[allow(non_snake_case)]
@@ -102,5 +120,133 @@ fn benchmark_lock_verifies_committed_real_lockfiles_for_sha256_and_blake3()
         assert_eq!(drift.refusal_code(), "E_INPUT_DRIFT");
         assert!(matches!(drift, LockCheckError::InputDrift { .. }));
     }
+    Ok(())
+}
+
+#[test]
+fn conflicting_same_path_lock_digests_refuse_instead_of_accepting_either()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let candidate = root.path().join("candidate.csv");
+    let lock_matching = root.path().join("matching.lock.json");
+    let lock_different = root.path().join("different.lock.json");
+    let bytes = b"comp_id,value\ncomp_1,42\n";
+    fs::write(&candidate, bytes)?;
+    let actual = sha256_bytes(bytes);
+    let different = sha256_bytes(b"a different candidate");
+    let candidate_name = candidate.to_str().expect("candidate path");
+    write_lock(&lock_matching, &[(candidate_name, &actual)])?;
+    write_lock(&lock_different, &[(candidate_name, &different)])?;
+
+    let error = verify_candidate(&candidate, &[lock_matching, lock_different.clone()]).unwrap_err();
+    assert_eq!(error.refusal_code(), "E_INPUT_DRIFT");
+    let LockCheckError::InputDrift {
+        lockfile,
+        expected_hash,
+        actual_hash,
+        ..
+    } = error
+    else {
+        return Err("expected first differing lock member".into());
+    };
+    {
+        assert_eq!(lockfile, lock_different);
+        assert_eq!(expected_hash, different);
+        assert_eq!(actual_hash, actual);
+    }
+    Ok(())
+}
+
+#[test]
+fn parent_folder_two_period_locking_accepts_right_inputs_and_refuses_swapped_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    fs::create_dir(root.path().join("dec"))?;
+    fs::create_dir(root.path().join("nov"))?;
+    let dec = b"comp_id,value\ncomp_1,42\n";
+    let nov = b"comp_id,value\ncomp_1,43\n";
+    fs::write(root.path().join("dec/loans.csv"), dec)?;
+    fs::write(root.path().join("nov/loans.csv"), nov)?;
+    let assertions = root.path().join("assertions.jsonl");
+    fs::write(
+        &assertions,
+        r#"{"entity":"comp_1","field":"value","expected":"42"}
+"#,
+    )?;
+    let lockfile = root.path().join("parent.lock.json");
+    write_lock(
+        &lockfile,
+        &[
+            ("dec/loans.csv", &sha256_bytes(dec)),
+            ("nov/loans.csv", &sha256_bytes(nov)),
+        ],
+    )?;
+
+    let run = |input: &str| -> Result<std::process::Output, std::io::Error> {
+        Command::new(env!("CARGO_BIN_EXE_benchmark"))
+            .current_dir(root.path())
+            .args([
+                input,
+                "--assertions",
+                assertions.to_str().expect("assertions path"),
+                "--key",
+                "comp_id",
+                "--lock",
+                lockfile.to_str().expect("lock path"),
+                "--json",
+                "--no-witness",
+            ])
+            .output()
+    };
+
+    let dec_run = run("./dec/loans.csv")?;
+    assert_eq!(dec_run.status.code(), Some(0));
+    let dec_report: serde_json::Value = serde_json::from_slice(&dec_run.stdout)?;
+    assert_eq!(
+        dec_report["input_verification"]["verified_member"],
+        "dec/loans.csv"
+    );
+
+    let nov_run = run("./nov/loans.csv")?;
+    assert_eq!(nov_run.status.code(), Some(1));
+    let nov_report: serde_json::Value = serde_json::from_slice(&nov_run.stdout)?;
+    assert_eq!(
+        nov_report["input_verification"]["verified_member"],
+        "nov/loans.csv"
+    );
+
+    fs::write(root.path().join("dec/loans.csv"), nov)?;
+    let swapped_run = run("./dec/loans.csv")?;
+    assert_eq!(swapped_run.status.code(), Some(2));
+    let swapped_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&swapped_run.stdout),
+        String::from_utf8_lossy(&swapped_run.stderr)
+    );
+    assert!(swapped_output.contains("E_INPUT_DRIFT"), "{swapped_output}");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_typed_backslash_is_not_reinterpreted_as_a_path_separator()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let candidate = root.path().join(r"candidate\name.csv");
+    let normalized_member = root.path().join("candidate/name.csv");
+    let lockfile = root.path().join("backslash.lock.json");
+    let bytes = b"comp_id,value\ncomp_1,42\n";
+    fs::write(&candidate, bytes)?;
+    write_lock(
+        &lockfile,
+        &[(
+            normalized_member.to_str().expect("normalized member path"),
+            &sha256_bytes(bytes),
+        )],
+    )?;
+
+    let error = verify_candidate(&candidate, std::slice::from_ref(&lockfile)).unwrap_err();
+    assert_eq!(error.refusal_code(), "E_INPUT_NOT_LOCKED");
+    assert!(matches!(error, LockCheckError::InputNotLocked { .. }));
     Ok(())
 }

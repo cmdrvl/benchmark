@@ -473,7 +473,12 @@ Refusals are part of the contract, not generic exceptions.
 
 ## Lock verification
 
-`benchmark` can optionally verify the candidate against one or more lockfiles before scoring:
+`benchmark` can optionally verify the candidate against one or more lockfiles before scoring. Since
+the R1 adoption, input-to-member matching uses the shared `cmdrvl-core` rule: leading `./` prefixes
+are removed, an exact normalized path wins, otherwise one normalized basename path must identify the
+candidate, and every selected member's usable digest must agree. On Windows only, a typed backslash
+is converted to `/`; on Unix it remains an ordinary filename character. Loading lockfiles, reading
+and hashing candidates, refusal codes, report fields, and receipts are unchanged.
 
 ```bash
 benchmark normalized.csv --assertions gold.jsonl --key comp_id \
@@ -485,6 +490,16 @@ Current behavior:
 - if the candidate is not in the provided lockfile set: refuse
 - if the candidate hash drifts from the lock member: refuse
 - if verification passes: record that in `input_verification`
+
+When locking two periods with the same basename, keep the period directories in one parent-folder
+lock and run from that parent. This costs one lock member per period, but avoids basename ambiguity:
+
+```bash
+benchmark ./dec/loans.csv --assertions gold.jsonl --key comp_id \
+  --lock parent.lock.json --json
+benchmark ./nov/loans.csv --assertions gold.jsonl --key comp_id \
+  --lock parent.lock.json --json
+```
 
 This preserves the spine rule that scoring should happen on trusted inputs, not on silently drifting local files.
 

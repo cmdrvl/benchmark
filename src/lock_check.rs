@@ -4,6 +4,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use cmdrvl_core::{
+    hash::Algorithm,
+    lock_matching::{Member, SelectError, Verdict, select},
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -26,65 +30,161 @@ pub fn verify_candidate(
     lockfiles: &[PathBuf],
 ) -> Result<InputVerification, LockCheckError> {
     let candidate_path = candidate_path.as_ref();
-    let exact_candidate_path = normalize_path(candidate_path);
-    let candidate_basename = candidate_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(str::to_owned);
+    let input_name = typed_name_for_matching(&candidate_path.to_string_lossy());
+    let mut candidates = Vec::new();
 
-    let mut exact_matches = Vec::new();
-    let mut basename_matches = Vec::new();
-
-    for lockfile_path in lockfiles {
+    for (lock, lockfile_path) in lockfiles.iter().enumerate() {
         let lockfile = load_lockfile(lockfile_path)?;
         for member in lockfile.members {
-            let candidate_member = CandidateMember {
-                lockfile: lockfile_path.clone(),
+            candidates.push(CandidateMember {
+                lock,
                 member_path: member.path,
                 bytes_hash: member.bytes_hash,
-            };
-
-            if candidate_member.member_path == exact_candidate_path {
-                exact_matches.push(candidate_member);
-                continue;
-            }
-
-            if let Some(basename) = &candidate_basename
-                && Path::new(&candidate_member.member_path)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    == Some(basename.as_str())
-            {
-                basename_matches.push(candidate_member);
-            }
+            });
         }
     }
 
-    if let Some(verification) = verify_matches(candidate_path, lockfiles, exact_matches)? {
-        return Ok(verification);
-    }
+    let members = candidates.iter().map(|candidate| Member {
+        lock: candidate.lock,
+        path: candidate.member_path.as_str(),
+        digest: candidate.bytes_hash.as_str(),
+    });
+    let selection = match select(&input_name, members) {
+        Ok(selection) => selection,
+        Err(SelectError::NotListed | SelectError::SeveralPaths(_)) => {
+            return Err(LockCheckError::InputNotLocked {
+                candidate: candidate_path.to_path_buf(),
+                lockfiles: lockfiles.to_vec(),
+            });
+        }
+        Err(SelectError::UnusableDigest(member)) => {
+            return Err(LockCheckError::UnsupportedHashAlgorithm {
+                candidate: candidate_path.to_path_buf(),
+                lockfile: lockfiles
+                    .get(member.lock)
+                    .cloned()
+                    .unwrap_or_else(|| candidate_path.to_path_buf()),
+                member: member.path.to_owned(),
+                algorithm: unsupported_algorithm_name(member.digest),
+            });
+        }
+    };
 
-    let basename_matches = dedupe_matches(basename_matches);
-    if basename_matches.len() > 1 {
-        return Err(LockCheckError::AmbiguousMember {
-            candidate: candidate_path.to_path_buf(),
-            matches: basename_matches
+    let observed: Vec<(Algorithm, String)> = selection
+        .algorithms()
+        .into_iter()
+        .map(|algorithm| {
+            let hash_algorithm = match algorithm {
+                Algorithm::Sha256 => HashAlgorithm::Sha256,
+                Algorithm::Blake3 => HashAlgorithm::Blake3,
+            };
+            hash_file(candidate_path, hash_algorithm).map(|digest| (algorithm, digest))
+        })
+        .collect::<Result<_, _>>()?;
+    let observed_refs: Vec<(Algorithm, &str)> = observed
+        .iter()
+        .map(|(algorithm, digest)| (*algorithm, digest.as_str()))
+        .collect();
+
+    match selection.judge(&observed_refs) {
+        Ok(Verdict::Verified { matched, .. }) => {
+            let member = matched.first().ok_or_else(|| LockCheckError::Io {
+                path: candidate_path.to_path_buf(),
+                source: std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "R1 selected no matching lock member",
+                ),
+            })?;
+            let algorithm = Algorithm::of(member.digest).ok_or_else(|| {
+                LockCheckError::UnsupportedHashAlgorithm {
+                    candidate: candidate_path.to_path_buf(),
+                    lockfile: lockfiles
+                        .get(member.lock)
+                        .cloned()
+                        .unwrap_or_else(|| candidate_path.to_path_buf()),
+                    member: member.path.to_owned(),
+                    algorithm: unsupported_algorithm_name(member.digest),
+                }
+            })?;
+            let candidate_hash = observed
                 .iter()
-                .map(|candidate| {
-                    format!("{}:{}", candidate.lockfile.display(), candidate.member_path)
+                .find_map(|(kind, digest)| match (*kind, algorithm) {
+                    (Algorithm::Sha256, Algorithm::Sha256)
+                    | (Algorithm::Blake3, Algorithm::Blake3) => Some(digest.clone()),
+                    _ => None,
                 })
-                .collect(),
-        });
+                .ok_or_else(|| LockCheckError::Io {
+                    path: candidate_path.to_path_buf(),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "R1 did not compute the selected lock digest",
+                    ),
+                })?;
+            Ok(InputVerification {
+                lockfiles: lockfiles.to_vec(),
+                matched_lockfile: lockfiles
+                    .get(member.lock)
+                    .cloned()
+                    .unwrap_or_else(|| candidate_path.to_path_buf()),
+                verified_member: member.path.to_owned(),
+                candidate_hash,
+            })
+        }
+        Ok(Verdict::Drift { differing, .. }) => {
+            let member = differing.first().ok_or_else(|| LockCheckError::Io {
+                path: candidate_path.to_path_buf(),
+                source: std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "R1 reported drift without a differing lock member",
+                ),
+            })?;
+            let algorithm = Algorithm::of(member.digest).ok_or_else(|| {
+                LockCheckError::UnsupportedHashAlgorithm {
+                    candidate: candidate_path.to_path_buf(),
+                    lockfile: lockfiles
+                        .get(member.lock)
+                        .cloned()
+                        .unwrap_or_else(|| candidate_path.to_path_buf()),
+                    member: member.path.to_owned(),
+                    algorithm: unsupported_algorithm_name(member.digest),
+                }
+            })?;
+            let actual_hash = observed
+                .iter()
+                .find_map(|(kind, digest)| match (*kind, algorithm) {
+                    (Algorithm::Sha256, Algorithm::Sha256)
+                    | (Algorithm::Blake3, Algorithm::Blake3) => Some(digest.clone()),
+                    _ => None,
+                })
+                .ok_or_else(|| LockCheckError::Io {
+                    path: candidate_path.to_path_buf(),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "R1 did not compute the differing lock digest",
+                    ),
+                })?;
+            Err(LockCheckError::InputDrift {
+                candidate: candidate_path.to_path_buf(),
+                lockfile: lockfiles
+                    .get(member.lock)
+                    .cloned()
+                    .unwrap_or_else(|| candidate_path.to_path_buf()),
+                member: member.path.to_owned(),
+                expected_hash: member.digest.to_owned(),
+                actual_hash,
+            })
+        }
+        Err(missing) => Err(LockCheckError::Io {
+            path: candidate_path.to_path_buf(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "R1 did not compute the {} lock digest",
+                    missing.algorithm.prefix()
+                ),
+            ),
+        }),
     }
-
-    if let Some(verification) = verify_matches(candidate_path, lockfiles, basename_matches)? {
-        return Ok(verification);
-    }
-
-    Err(LockCheckError::InputNotLocked {
-        candidate: candidate_path.to_path_buf(),
-        lockfiles: lockfiles.to_vec(),
-    })
 }
 
 #[derive(Debug, Error)]
@@ -145,7 +245,7 @@ impl LockCheckError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CandidateMember {
-    lockfile: PathBuf,
+    lock: usize,
     member_path: String,
     bytes_hash: String,
 }
@@ -192,20 +292,6 @@ enum HashAlgorithm {
     Blake3,
 }
 
-impl HashAlgorithm {
-    fn from_bytes_hash(bytes_hash: &str) -> Result<Self, String> {
-        let algorithm = bytes_hash
-            .split_once(':')
-            .map(|(algorithm, _)| algorithm)
-            .unwrap_or(bytes_hash);
-        match algorithm {
-            "sha256" => Ok(Self::Sha256),
-            "blake3" => Ok(Self::Blake3),
-            _ => Err(algorithm.to_owned()),
-        }
-    }
-}
-
 fn hash_file(path: &Path, algorithm: HashAlgorithm) -> Result<String, LockCheckError> {
     let mut file = File::open(path).map_err(|source| LockCheckError::Io {
         path: path.to_path_buf(),
@@ -249,69 +335,21 @@ fn hash_file(path: &Path, algorithm: HashAlgorithm) -> Result<String, LockCheckE
     }
 }
 
-fn normalize_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+fn unsupported_algorithm_name(bytes_hash: &str) -> String {
+    bytes_hash
+        .split_once(':')
+        .map_or(bytes_hash, |(algorithm, _)| algorithm)
+        .to_owned()
 }
 
-fn dedupe_matches(matches: Vec<CandidateMember>) -> Vec<CandidateMember> {
-    let mut deduped = Vec::new();
-
-    for candidate in matches {
-        if deduped.iter().any(|seen: &CandidateMember| {
-            seen.lockfile == candidate.lockfile && seen.member_path == candidate.member_path
-        }) {
-            continue;
-        }
-        deduped.push(candidate);
-    }
-
-    deduped
+#[cfg(windows)]
+fn typed_name_for_matching(file: &str) -> String {
+    file.replace('\\', "/")
 }
 
-fn verify_matches(
-    candidate_path: &Path,
-    lockfiles: &[PathBuf],
-    matches: Vec<CandidateMember>,
-) -> Result<Option<InputVerification>, LockCheckError> {
-    if matches.is_empty() {
-        return Ok(None);
-    }
-
-    let mut first_drift = None;
-    for candidate in matches {
-        let algorithm =
-            HashAlgorithm::from_bytes_hash(&candidate.bytes_hash).map_err(|algorithm| {
-                LockCheckError::UnsupportedHashAlgorithm {
-                    candidate: candidate_path.to_path_buf(),
-                    lockfile: candidate.lockfile.clone(),
-                    member: candidate.member_path.clone(),
-                    algorithm,
-                }
-            })?;
-        let candidate_hash = hash_file(candidate_path, algorithm)?;
-        if candidate.bytes_hash == candidate_hash {
-            return Ok(Some(InputVerification {
-                lockfiles: lockfiles.to_vec(),
-                matched_lockfile: candidate.lockfile,
-                verified_member: candidate.member_path,
-                candidate_hash,
-            }));
-        }
-        if first_drift.is_none() {
-            first_drift = Some(LockCheckError::InputDrift {
-                candidate: candidate_path.to_path_buf(),
-                lockfile: candidate.lockfile,
-                member: candidate.member_path,
-                expected_hash: candidate.bytes_hash,
-                actual_hash: candidate_hash,
-            });
-        }
-    }
-
-    match first_drift {
-        Some(error) => Err(error),
-        None => Ok(None),
-    }
+#[cfg(not(windows))]
+fn typed_name_for_matching(file: &str) -> String {
+    file.to_owned()
 }
 
 #[cfg(test)]
@@ -439,6 +477,34 @@ mod tests {
     }
 
     #[test]
+    fn bench_u_lock_refuses_unusable_digest() -> Result<(), Box<dyn std::error::Error>> {
+        let candidate = temp_path("unusable-digest.csv");
+        let lockfile = temp_path("unusable-digest.lock.json");
+        let candidate_name = candidate
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("candidate file name")?;
+        write_file(&candidate, "comp_id,value\ncomp_1,42\n")?;
+        write_file(
+            &lockfile,
+            &format!(
+                "{{\"version\":\"lock.v0\",\"members\":[{{\"path\":\"{candidate_name}\",\"bytes_hash\":\"sha256:deadbeef\"}}]}}"
+            ),
+        )?;
+
+        let error = verify_candidate(&candidate, std::slice::from_ref(&lockfile)).unwrap_err();
+        assert_eq!(error.refusal_code(), E_UNSUPPORTED_HASH_ALGORITHM);
+        assert!(matches!(
+            error,
+            LockCheckError::UnsupportedHashAlgorithm { .. }
+        ));
+
+        remove_if_exists(&candidate)?;
+        remove_if_exists(&lockfile)?;
+        Ok(())
+    }
+
+    #[test]
     fn bench_u_lock_refuses_unknown_hash_algorithm() -> Result<(), Box<dyn std::error::Error>> {
         let candidate = temp_path("unsupported-algorithm.csv");
         let lockfile = temp_path("unsupported-algorithm.lock.json");
@@ -480,11 +546,11 @@ mod tests {
             .and_then(|name| name.to_str())
             .ok_or("candidate file name")?;
 
-        for lockfile in [&lockfile_a, &lockfile_b] {
+        for (lockfile, folder) in [(&lockfile_a, "a"), (&lockfile_b, "b")] {
             write_file(
                 lockfile,
                 &format!(
-                    "{{\"version\":\"lock.v0\",\"lock_hash\":\"sha256:{hash}\",\"dataset_id\":null,\"as_of\":null,\"note\":null,\"created\":\"2026-03-08T00:00:00Z\",\"tool_versions\":{{\"lock\":\"0.2.0\"}},\"profiles\":[],\"skipped\":[],\"members\":[{{\"path\":\"nested/{candidate_name}\",\"bytes_hash\":\"sha256:{member_hash}\",\"size\":24,\"fingerprint\":null}}],\"skipped_count\":0,\"member_count\":1}}",
+                    "{{\"version\":\"lock.v0\",\"lock_hash\":\"sha256:{hash}\",\"dataset_id\":null,\"as_of\":null,\"note\":null,\"created\":\"2026-03-08T00:00:00Z\",\"tool_versions\":{{\"lock\":\"0.2.0\"}},\"profiles\":[],\"skipped\":[],\"members\":[{{\"path\":\"nested/{folder}/{candidate_name}\",\"bytes_hash\":\"sha256:{member_hash}\",\"size\":24,\"fingerprint\":null}}],\"skipped_count\":0,\"member_count\":1}}",
                     hash = "0".repeat(64),
                     member_hash = "3".repeat(64),
                 ),
@@ -494,7 +560,7 @@ mod tests {
         let error =
             verify_candidate(&candidate, &[lockfile_a.clone(), lockfile_b.clone()]).unwrap_err();
         assert_eq!(error.refusal_code(), E_INPUT_NOT_LOCKED);
-        assert!(matches!(error, LockCheckError::AmbiguousMember { .. }));
+        assert!(matches!(error, LockCheckError::InputNotLocked { .. }));
 
         remove_if_exists(&candidate)?;
         remove_if_exists(&lockfile_a)?;
