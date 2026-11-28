@@ -124,6 +124,42 @@ fn benchmark_lock_verifies_committed_real_lockfiles_for_sha256_and_blake3()
 }
 
 #[test]
+fn lock_receipt_preserves_the_member_spelling_from_the_lockfile()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let candidate = root.path().join("loans.csv");
+    let lockfile = root.path().join("loans.lock.json");
+    let bytes = b"comp_id,value\ncomp_1,42\n";
+    fs::write(&candidate, bytes)?;
+    write_lock(&lockfile, &[("./loans.csv", &sha256_bytes(bytes))])?;
+
+    let verification = verify_candidate(&candidate, std::slice::from_ref(&lockfile))?;
+    assert_eq!(verification.verified_member, "./loans.csv");
+    Ok(())
+}
+
+#[test]
+fn lock_drift_detail_preserves_the_member_spelling_from_the_lockfile()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let candidate = root.path().join("loans.csv");
+    let lockfile = root.path().join("loans.lock.json");
+    let bytes = b"comp_id,value\ncomp_1,42\n";
+    fs::write(&candidate, bytes)?;
+    write_lock(
+        &lockfile,
+        &[("./loans.csv", &sha256_bytes(b"different bytes"))],
+    )?;
+
+    let error = verify_candidate(&candidate, std::slice::from_ref(&lockfile)).unwrap_err();
+    let LockCheckError::InputDrift { member, .. } = error else {
+        return Err("expected E_INPUT_DRIFT".into());
+    };
+    assert_eq!(member, "./loans.csv");
+    Ok(())
+}
+
+#[test]
 fn conflicting_same_path_lock_digests_refuse_instead_of_accepting_either()
 -> Result<(), Box<dyn std::error::Error>> {
     let root = tempfile::tempdir()?;

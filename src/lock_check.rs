@@ -51,10 +51,26 @@ pub fn verify_candidate(
     });
     let selection = match select(&input_name, members) {
         Ok(selection) => selection,
-        Err(SelectError::NotListed | SelectError::SeveralPaths(_)) => {
+        Err(SelectError::NotListed) => {
             return Err(LockCheckError::InputNotLocked {
                 candidate: candidate_path.to_path_buf(),
                 lockfiles: lockfiles.to_vec(),
+            });
+        }
+        Err(SelectError::SeveralPaths(members)) => {
+            let matches = members
+                .iter()
+                .map(|member| {
+                    let lockfile = lockfiles.get(member.lock).map_or_else(
+                        || candidate_path.display().to_string(),
+                        |path| path.display().to_string(),
+                    );
+                    format!("{lockfile}:{}", original_member_path(&candidates, member))
+                })
+                .collect();
+            return Err(LockCheckError::AmbiguousMember {
+                candidate: candidate_path.to_path_buf(),
+                matches,
             });
         }
         Err(SelectError::UnusableDigest(member)) => {
@@ -64,7 +80,7 @@ pub fn verify_candidate(
                     .get(member.lock)
                     .cloned()
                     .unwrap_or_else(|| candidate_path.to_path_buf()),
-                member: member.path.to_owned(),
+                member: original_member_path(&candidates, &member),
                 algorithm: unsupported_algorithm_name(member.digest),
             });
         }
@@ -95,6 +111,7 @@ pub fn verify_candidate(
                     "R1 selected no matching lock member",
                 ),
             })?;
+            let member_path = original_member_path(&candidates, member);
             let algorithm = Algorithm::of(member.digest).ok_or_else(|| {
                 LockCheckError::UnsupportedHashAlgorithm {
                     candidate: candidate_path.to_path_buf(),
@@ -102,7 +119,7 @@ pub fn verify_candidate(
                         .get(member.lock)
                         .cloned()
                         .unwrap_or_else(|| candidate_path.to_path_buf()),
-                    member: member.path.to_owned(),
+                    member: member_path.clone(),
                     algorithm: unsupported_algorithm_name(member.digest),
                 }
             })?;
@@ -126,7 +143,7 @@ pub fn verify_candidate(
                     .get(member.lock)
                     .cloned()
                     .unwrap_or_else(|| candidate_path.to_path_buf()),
-                verified_member: member.path.to_owned(),
+                verified_member: member_path,
                 candidate_hash,
             })
         }
@@ -138,6 +155,7 @@ pub fn verify_candidate(
                     "R1 reported drift without a differing lock member",
                 ),
             })?;
+            let member_path = original_member_path(&candidates, member);
             let algorithm = Algorithm::of(member.digest).ok_or_else(|| {
                 LockCheckError::UnsupportedHashAlgorithm {
                     candidate: candidate_path.to_path_buf(),
@@ -145,7 +163,7 @@ pub fn verify_candidate(
                         .get(member.lock)
                         .cloned()
                         .unwrap_or_else(|| candidate_path.to_path_buf()),
-                    member: member.path.to_owned(),
+                    member: member_path.clone(),
                     algorithm: unsupported_algorithm_name(member.digest),
                 }
             })?;
@@ -169,7 +187,7 @@ pub fn verify_candidate(
                     .get(member.lock)
                     .cloned()
                     .unwrap_or_else(|| candidate_path.to_path_buf()),
-                member: member.path.to_owned(),
+                member: member_path,
                 expected_hash: member.digest.to_owned(),
                 actual_hash,
             })
@@ -343,6 +361,28 @@ fn unsupported_algorithm_name(bytes_hash: &str) -> String {
         .split_once(':')
         .map_or(bytes_hash, |(algorithm, _)| algorithm)
         .to_owned()
+}
+
+fn original_member_path(candidates: &[CandidateMember], member: &Member<'_>) -> String {
+    candidates
+        .iter()
+        .find(|candidate| {
+            candidate.lock == member.lock
+                && normalize_lock_member_path(&candidate.member_path) == member.path
+                && candidate.bytes_hash == member.digest
+        })
+        .map_or_else(
+            || member.path.to_owned(),
+            |candidate| candidate.member_path.clone(),
+        )
+}
+
+fn normalize_lock_member_path(path: &str) -> &str {
+    let mut normalized = path;
+    while let Some(stripped) = normalized.strip_prefix("./") {
+        normalized = stripped;
+    }
+    normalized
 }
 
 #[cfg(windows)]
@@ -563,7 +603,22 @@ mod tests {
         let error =
             verify_candidate(&candidate, &[lockfile_a.clone(), lockfile_b.clone()]).unwrap_err();
         assert_eq!(error.refusal_code(), E_INPUT_NOT_LOCKED);
-        assert!(matches!(error, LockCheckError::InputNotLocked { .. }));
+        let LockCheckError::AmbiguousMember { matches, .. } = error else {
+            return Err("expected E_INPUT_NOT_LOCKED ambiguity details".into());
+        };
+        assert_eq!(matches.len(), 2);
+        assert!(
+            matches
+                .iter()
+                .any(|detail| detail.ends_with(&format!(":nested/a/{candidate_name}"))),
+            "matches: {matches:?}"
+        );
+        assert!(
+            matches
+                .iter()
+                .any(|detail| detail.ends_with(&format!(":nested/b/{candidate_name}"))),
+            "matches: {matches:?}"
+        );
 
         remove_if_exists(&candidate)?;
         remove_if_exists(&lockfile_a)?;
