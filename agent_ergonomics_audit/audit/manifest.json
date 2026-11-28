@@ -1,8 +1,8 @@
 {
   "schema_version": "1.1.0",
   "tool_name": "benchmark",
-  "tool_repo": "/Users/zac/Source/cmdrvl/benchmark",
-  "audit_workspace": "/Users/zac/Source/cmdrvl/benchmark/agent_ergonomics_audit",
+  "tool_repo": "[workspace]/benchmark",
+  "audit_workspace": "[workspace]/benchmark/agent_ergonomics_audit",
   "rubric_version": "<git SHA of references/rubric/SCORING-RUBRIC.md when scoring ran>",
   "passes": [
     {

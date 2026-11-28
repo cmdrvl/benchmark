@@ -1,7 +1,7 @@
 # Agent Ergonomics Audit Workspace
 
 For tool: `benchmark`
-Target: `/Users/zac/Source/cmdrvl/benchmark`
+Target: `[workspace]/benchmark`
 
 This is a measurement workspace produced by the
 `agent-ergonomics-and-intuitiveness-maximization-for-cli-tools` skill.
@@ -25,9 +25,9 @@ This is a measurement workspace produced by the
 
 ## How to resume
 
-This workspace lives **inside the target repo** at `/Users/zac/Source/cmdrvl/benchmark/agent_ergonomics_audit/` and is committed alongside the code on the target's current branch (typically `main`). The phase-loop scripts live in the **skill repo**, not in this workspace. From the skill repo's root (or with absolute paths), run:
+This workspace lives **inside the target repo** at `[workspace]/benchmark/agent_ergonomics_audit/` and is committed alongside the code on the target's current branch (typically `main`). The phase-loop scripts live in the **skill repo**, not in this workspace. From the skill repo's root (or with absolute paths), run:
 
-1. `<SKILL>/scripts/discover-cli.sh /Users/zac/Source/cmdrvl/benchmark` to confirm the binary still exists.
-2. `<SKILL>/scripts/validate_pass.sh /Users/zac/Source/cmdrvl/benchmark/agent_ergonomics_audit` to check artifact integrity.
+1. `<SKILL>/scripts/discover-cli.sh [workspace]/benchmark` to confirm the binary still exists.
+2. `<SKILL>/scripts/validate_pass.sh [workspace]/benchmark/agent_ergonomics_audit` to check artifact integrity.
 3. Read `audit/HANDOFF.md` here in the workspace.
 4. Pick a mode and send the resumed-pass kickoff prompt.
