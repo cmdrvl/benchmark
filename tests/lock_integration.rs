@@ -1,8 +1,9 @@
 use std::{
-    fs,
+    env, fs,
     io::Write,
     path::{Path, PathBuf},
     process::Command,
+    sync::{Mutex, OnceLock},
 };
 
 use benchmark::lock_check::{LockCheckError, verify_candidate};
@@ -27,6 +28,19 @@ fn write_lock(path: &Path, members: &[(&str, &str)]) -> Result<(), Box<dyn std::
         serde_json::to_vec(&json!({"version": "lock.v0", "members": members}))?,
     )?;
     Ok(())
+}
+
+fn with_current_dir<T>(dir: &Path, action: impl FnOnce() -> T) -> T {
+    static CURRENT_DIR_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = CURRENT_DIR_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("current-directory test lock");
+    let previous = env::current_dir().expect("current directory");
+    env::set_current_dir(dir).expect("test directory");
+    let result = action();
+    env::set_current_dir(previous).expect("restore current directory");
+    result
 }
 
 #[allow(non_snake_case)]
@@ -156,6 +170,130 @@ fn lock_drift_detail_preserves_the_member_spelling_from_the_lockfile()
         return Err("expected E_INPUT_DRIFT".into());
     };
     assert_eq!(member, "./loans.csv");
+    Ok(())
+}
+
+#[test]
+fn lock_receipt_prefers_the_legacy_exact_member_spelling_in_one_lock()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let candidate = root.path().join("loans.csv");
+    let lockfile = root.path().join("loans.lock.json");
+    let bytes = b"comp_id,value\ncomp_1,42\n";
+    fs::write(&candidate, bytes)?;
+    let actual = sha256_bytes(bytes);
+    write_lock(
+        &lockfile,
+        &[("loans.csv", &actual), ("./loans.csv", &actual)],
+    )?;
+
+    let verification = with_current_dir(root.path(), || {
+        verify_candidate(Path::new("./loans.csv"), std::slice::from_ref(&lockfile))
+    })?;
+    assert_eq!(verification.verified_member, "./loans.csv");
+    assert_eq!(verification.matched_lockfile, lockfile);
+    Ok(())
+}
+
+#[test]
+fn lock_receipt_prefers_the_legacy_exact_member_spelling_in_two_locks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let candidate = root.path().join("loans.csv");
+    let lockfile_a = root.path().join("first.lock.json");
+    let lockfile_b = root.path().join("second.lock.json");
+    let bytes = b"comp_id,value\ncomp_1,42\n";
+    fs::write(&candidate, bytes)?;
+    let actual = sha256_bytes(bytes);
+    for lockfile in [&lockfile_a, &lockfile_b] {
+        write_lock(
+            lockfile,
+            &[("loans.csv", &actual), ("./loans.csv", &actual)],
+        )?;
+    }
+
+    let verification = with_current_dir(root.path(), || {
+        verify_candidate(
+            Path::new("./loans.csv"),
+            &[lockfile_a.clone(), lockfile_b.clone()],
+        )
+    })?;
+    assert_eq!(verification.verified_member, "./loans.csv");
+    assert_eq!(verification.matched_lockfile, lockfile_a);
+    Ok(())
+}
+
+#[test]
+fn lock_drift_prefers_the_legacy_exact_member_spelling_in_one_lock()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let candidate = root.path().join("loans.csv");
+    let lockfile = root.path().join("loans.lock.json");
+    let bytes = b"comp_id,value\ncomp_1,42\n";
+    fs::write(&candidate, bytes)?;
+    let first_wrong = sha256_bytes(b"first wrong bytes");
+    let exact_wrong = sha256_bytes(b"exact wrong bytes");
+    write_lock(
+        &lockfile,
+        &[("loans.csv", &first_wrong), ("./loans.csv", &exact_wrong)],
+    )?;
+
+    let error = with_current_dir(root.path(), || {
+        verify_candidate(Path::new("./loans.csv"), std::slice::from_ref(&lockfile))
+    })
+    .unwrap_err();
+    let LockCheckError::InputDrift {
+        lockfile: drift_lockfile,
+        member,
+        expected_hash,
+        ..
+    } = error
+    else {
+        return Err("expected E_INPUT_DRIFT".into());
+    };
+    assert_eq!(drift_lockfile, lockfile);
+    assert_eq!(member, "./loans.csv");
+    assert_eq!(expected_hash, exact_wrong);
+    Ok(())
+}
+
+#[test]
+fn lock_drift_prefers_the_legacy_exact_member_spelling_in_two_locks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let candidate = root.path().join("loans.csv");
+    let lockfile_a = root.path().join("first.lock.json");
+    let lockfile_b = root.path().join("second.lock.json");
+    let bytes = b"comp_id,value\ncomp_1,42\n";
+    fs::write(&candidate, bytes)?;
+    let first_wrong = sha256_bytes(b"first wrong bytes");
+    let exact_wrong = sha256_bytes(b"exact wrong bytes");
+    for lockfile in [&lockfile_a, &lockfile_b] {
+        write_lock(
+            lockfile,
+            &[("loans.csv", &first_wrong), ("./loans.csv", &exact_wrong)],
+        )?;
+    }
+
+    let error = with_current_dir(root.path(), || {
+        verify_candidate(
+            Path::new("./loans.csv"),
+            &[lockfile_a.clone(), lockfile_b.clone()],
+        )
+    })
+    .unwrap_err();
+    let LockCheckError::InputDrift {
+        lockfile: drift_lockfile,
+        member,
+        expected_hash,
+        ..
+    } = error
+    else {
+        return Err("expected E_INPUT_DRIFT".into());
+    };
+    assert_eq!(drift_lockfile, lockfile_a);
+    assert_eq!(member, "./loans.csv");
+    assert_eq!(expected_hash, exact_wrong);
     Ok(())
 }
 

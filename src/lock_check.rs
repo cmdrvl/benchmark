@@ -31,6 +31,7 @@ pub fn verify_candidate(
 ) -> Result<InputVerification, LockCheckError> {
     let candidate_path = candidate_path.as_ref();
     let input_name = typed_name_for_matching(&candidate_path.to_string_lossy());
+    let exact_member_path = legacy_exact_member_path(candidate_path);
     let mut candidates = Vec::new();
 
     for (lock, lockfile_path) in lockfiles.iter().enumerate() {
@@ -104,23 +105,23 @@ pub fn verify_candidate(
 
     match selection.judge(&observed_refs) {
         Ok(Verdict::Verified { matched, .. }) => {
-            let member = matched.first().ok_or_else(|| LockCheckError::Io {
-                path: candidate_path.to_path_buf(),
-                source: std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "R1 selected no matching lock member",
-                ),
-            })?;
-            let member_path = original_member_path(&candidates, member);
-            let algorithm = Algorithm::of(member.digest).ok_or_else(|| {
+            let candidate = preferred_candidate(&candidates, &matched, &exact_member_path)
+                .ok_or_else(|| LockCheckError::Io {
+                    path: candidate_path.to_path_buf(),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "R1 selected no matching lock member",
+                    ),
+                })?;
+            let algorithm = Algorithm::of(&candidate.bytes_hash).ok_or_else(|| {
                 LockCheckError::UnsupportedHashAlgorithm {
                     candidate: candidate_path.to_path_buf(),
                     lockfile: lockfiles
-                        .get(member.lock)
+                        .get(candidate.lock)
                         .cloned()
                         .unwrap_or_else(|| candidate_path.to_path_buf()),
-                    member: member_path.clone(),
-                    algorithm: unsupported_algorithm_name(member.digest),
+                    member: candidate.member_path.clone(),
+                    algorithm: unsupported_algorithm_name(&candidate.bytes_hash),
                 }
             })?;
             let candidate_hash = observed
@@ -140,31 +141,31 @@ pub fn verify_candidate(
             Ok(InputVerification {
                 lockfiles: lockfiles.to_vec(),
                 matched_lockfile: lockfiles
-                    .get(member.lock)
+                    .get(candidate.lock)
                     .cloned()
                     .unwrap_or_else(|| candidate_path.to_path_buf()),
-                verified_member: member_path,
+                verified_member: candidate.member_path.clone(),
                 candidate_hash,
             })
         }
         Ok(Verdict::Drift { differing, .. }) => {
-            let member = differing.first().ok_or_else(|| LockCheckError::Io {
-                path: candidate_path.to_path_buf(),
-                source: std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "R1 reported drift without a differing lock member",
-                ),
-            })?;
-            let member_path = original_member_path(&candidates, member);
-            let algorithm = Algorithm::of(member.digest).ok_or_else(|| {
+            let candidate = preferred_candidate(&candidates, &differing, &exact_member_path)
+                .ok_or_else(|| LockCheckError::Io {
+                    path: candidate_path.to_path_buf(),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "R1 reported drift without a differing lock member",
+                    ),
+                })?;
+            let algorithm = Algorithm::of(&candidate.bytes_hash).ok_or_else(|| {
                 LockCheckError::UnsupportedHashAlgorithm {
                     candidate: candidate_path.to_path_buf(),
                     lockfile: lockfiles
-                        .get(member.lock)
+                        .get(candidate.lock)
                         .cloned()
                         .unwrap_or_else(|| candidate_path.to_path_buf()),
-                    member: member_path.clone(),
-                    algorithm: unsupported_algorithm_name(member.digest),
+                    member: candidate.member_path.clone(),
+                    algorithm: unsupported_algorithm_name(&candidate.bytes_hash),
                 }
             })?;
             let actual_hash = observed
@@ -184,11 +185,11 @@ pub fn verify_candidate(
             Err(LockCheckError::InputDrift {
                 candidate: candidate_path.to_path_buf(),
                 lockfile: lockfiles
-                    .get(member.lock)
+                    .get(candidate.lock)
                     .cloned()
                     .unwrap_or_else(|| candidate_path.to_path_buf()),
-                member: member_path,
-                expected_hash: member.digest.to_owned(),
+                member: candidate.member_path.clone(),
+                expected_hash: candidate.bytes_hash.clone(),
                 actual_hash,
             })
         }
@@ -364,17 +365,49 @@ fn unsupported_algorithm_name(bytes_hash: &str) -> String {
 }
 
 fn original_member_path(candidates: &[CandidateMember], member: &Member<'_>) -> String {
+    candidate_for_member(candidates, member).map_or_else(
+        || member.path.to_owned(),
+        |candidate| candidate.member_path.clone(),
+    )
+}
+
+fn candidate_for_member<'a>(
+    candidates: &'a [CandidateMember],
+    member: &Member<'_>,
+) -> Option<&'a CandidateMember> {
+    candidates
+        .iter()
+        .find(|candidate| candidate_matches(candidate, member))
+}
+
+fn preferred_candidate<'a>(
+    candidates: &'a [CandidateMember],
+    selected: &[Member<'_>],
+    exact_member_path: &str,
+) -> Option<&'a CandidateMember> {
     candidates
         .iter()
         .find(|candidate| {
-            candidate.lock.eq(&member.lock)
-                && normalize_lock_member_path(&candidate.member_path).eq(member.path)
-                && candidate.bytes_hash.eq(member.digest)
+            candidate.member_path.eq(exact_member_path)
+                && selected
+                    .iter()
+                    .any(|member| candidate_matches(candidate, member))
         })
-        .map_or_else(
-            || member.path.to_owned(),
-            |candidate| candidate.member_path.clone(),
-        )
+        .or_else(|| {
+            selected
+                .first()
+                .and_then(|member| candidate_for_member(candidates, member))
+        })
+}
+
+fn candidate_matches(candidate: &CandidateMember, member: &Member<'_>) -> bool {
+    candidate.lock.eq(&member.lock)
+        && normalize_lock_member_path(&candidate.member_path).eq(member.path)
+        && candidate.bytes_hash.eq(member.digest)
+}
+
+fn legacy_exact_member_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn normalize_lock_member_path(path: &str) -> &str {
