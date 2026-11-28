@@ -37,6 +37,7 @@ fn fixture_cli(candidate: &str, assertions: &str, lockfiles: &[&str], json: bool
         robot_triage: false,
         describe: false,
         schema: false,
+        input_schema: false,
         no_witness: true,
         command: None,
     }
@@ -210,6 +211,7 @@ fn bench_i_composite_profile_ascii_trim_and_default_redaction()
             robot_triage: false,
             describe: false,
             schema: false,
+            input_schema: false,
             no_witness: true,
             command: None,
         })
@@ -275,6 +277,7 @@ fn bench_p1_xlsx_matches_csv_and_requires_a_sheet_selector()
             robot_triage: false,
             describe: false,
             schema: false,
+            input_schema: false,
             no_witness: true,
             command: None,
         })?;
@@ -295,6 +298,7 @@ fn bench_p1_xlsx_matches_csv_and_requires_a_sheet_selector()
         robot_triage: false,
         describe: false,
         schema: false,
+        input_schema: false,
         no_witness: true,
         command: None,
     })?;
@@ -343,6 +347,7 @@ fn bench_p1_xlsx_matches_csv_and_requires_a_sheet_selector()
         robot_triage: false,
         describe: false,
         schema: false,
+        input_schema: false,
         no_witness: true,
         command: None,
     })?;
@@ -439,6 +444,7 @@ fn bench_u_help_mentions_expected_flags() {
     assert!(help.contains("Usage: benchmark"));
     assert!(help.contains("CANDIDATE"));
     assert!(help.contains("--assertions"));
+    assert!(help.contains("--input-schema"));
     assert!(help.contains("--key"));
     assert!(help.contains("--profile"));
     assert!(help.contains("--explicit"));
@@ -449,6 +455,8 @@ fn bench_u_help_mentions_expected_flags() {
     assert!(help.contains("benchmark --robot-triage"));
     assert!(help.contains("benchmark capabilities --json"));
     assert!(help.contains("benchmark robot-docs guide"));
+    assert!(help.contains("required: entity, field, expected"));
+    assert!(help.contains("compare_as (string|number|percent|date"));
 }
 
 #[test]
@@ -482,6 +490,14 @@ fn bench_u_json_only_returns_capabilities_contract() -> Result<(), Box<dyn std::
     assert_eq!(
         payload["capabilities"]["agent_surfaces"]["robot_triage"],
         "benchmark --robot-triage"
+    );
+    assert_eq!(
+        payload["capabilities"]["agent_surfaces"]["input_schema"],
+        "benchmark --input-schema"
+    );
+    assert_eq!(
+        payload["capabilities"]["assertion_input"]["required_fields"],
+        serde_json::json!(["entity", "field", "expected"])
     );
     assert_eq!(payload["composition"]["role"], "gold_set_scorer");
     Ok(())
@@ -525,6 +541,12 @@ fn bench_u_top_level_capabilities_and_robot_docs_aliases_work()
         docs.stdout
             .contains("assess benchmark.json <other-artifacts> --policy <policy.yaml> --json")
     );
+    assert!(docs.stdout.contains("benchmark --input-schema"));
+    assert!(
+        docs.stdout
+            .contains("{\"entity\":\"comp_4\",\"field\":\"u8:cap_rate\",\"expected\":\"6.76%\"}")
+    );
+    assert!(docs.stdout.contains("required: entity, field, expected"));
     Ok(())
 }
 
@@ -662,6 +684,7 @@ fn bench_u_execute_returns_summary_fail_with_exit_1() -> Result<(), Box<dyn std:
         robot_triage: false,
         describe: false,
         schema: false,
+        input_schema: false,
         no_witness: true,
         command: None,
     })?;

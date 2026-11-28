@@ -392,6 +392,7 @@ contract: cmdrvl.doctor.v1\n\
 agent_entrypoints:\n\
   benchmark --describe\n\
   benchmark --schema\n\
+  benchmark --input-schema\n\
   benchmark --robot-triage\n\
   benchmark capabilities --json\n\
   benchmark robot-docs guide\n\
@@ -400,6 +401,11 @@ scoring:\n\
   benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --render summary\n\
   benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) --lock <LOCKFILE> --json\n\
   add --no-witness to keep a run out of the ambient witness ledger\n\
+assertion_jsonl:\n\
+  schema: benchmark --input-schema\n\
+  example: {\"entity\":\"comp_4\",\"field\":\"u8:cap_rate\",\"expected\":\"6.76%\"}\n\
+  required: entity, field, expected\n\
+  optional: compare_as (string|number|percent|date; default string), tolerance (non-negative number for number/percent), severity (critical|major|minor; default major), source\n\
 redaction:\n\
   default failure markers are deterministic ordinal refs v1, v2, ... over emitted failures only\n\
   refs reveal equality patterns and distinct-value count, not cell content, and are not comparable across different inputs\n\

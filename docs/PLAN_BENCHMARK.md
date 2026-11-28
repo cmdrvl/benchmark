@@ -79,6 +79,7 @@ Options:
   --profile <FILE>       Frozen JSON profile containing key or key_columns
   --explicit             Include raw expected and actual failure cells
   --lock <LOCKFILE>      Verify candidate is a member of these lockfiles (repeatable)
+  --input-schema         Print the JSON Schema for one gold assertion JSONL record
   --json                 JSON output
   --robot-triage         Read-only automation triage JSON
 

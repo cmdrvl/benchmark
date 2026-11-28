@@ -11,6 +11,7 @@ use thiserror::Error;
 pub const E_IO: &str = "E_IO";
 pub const E_BAD_ASSERTIONS: &str = "E_BAD_ASSERTIONS";
 pub const E_EMPTY_ASSERTIONS: &str = "E_EMPTY_ASSERTIONS";
+pub const INPUT_SCHEMA_JSON: &str = include_str!("../assertions.schema.json");
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Assertion {

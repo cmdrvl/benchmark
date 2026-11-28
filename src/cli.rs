@@ -16,7 +16,7 @@ pub enum SummaryRenderMode {
     version,
     about = "Score a row-oriented candidate against human-validated assertions",
     long_about = "Score one row-oriented candidate relation against a human-validated JSONL assertion set.",
-    after_long_help = "Agent entrypoints:\n  benchmark --robot-triage\n  benchmark capabilities --json\n  benchmark robot-docs guide\n\nExamples:\n  benchmark tests/fixtures/candidates/smoke/bench_i001_candidate.csv --assertions tests/fixtures/assertions/smoke/bench_i001_gold.jsonl --key comp_id --json\n  benchmark tests/fixtures/candidates/smoke/bench_mixed.csv --assertions tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl --key comp_id --render summary\n  benchmark candidate.csv --assertions gold.jsonl --profile profile.json --json\n  benchmark capabilities --json\n  benchmark robot-docs guide",
+    after_long_help = "Agent entrypoints:\n  benchmark --robot-triage\n  benchmark --input-schema\n  benchmark capabilities --json\n  benchmark robot-docs guide\n\nExamples:\n  benchmark tests/fixtures/candidates/smoke/bench_i001_candidate.csv --assertions tests/fixtures/assertions/smoke/bench_i001_gold.jsonl --key comp_id --json\n  benchmark tests/fixtures/candidates/smoke/bench_mixed.csv --assertions tests/fixtures/assertions/smoke/bench_mixed_gold.jsonl --key comp_id --render summary\n  benchmark candidate.csv --assertions gold.jsonl --profile profile.json --json\n  benchmark capabilities --json\n  benchmark robot-docs guide\n\nAssertion JSONL input:\n  benchmark --input-schema\n  {\"entity\":\"comp_4\",\"field\":\"u8:cap_rate\",\"expected\":\"6.76%\"}\n  required: entity, field, expected\n  optional: compare_as (string|number|percent|date; default string), tolerance (non-negative number for number/percent), severity (critical|major|minor; default major), source (provenance string)",
     subcommand_precedence_over_arg = true,
     subcommand_negates_reqs = true
 )]
@@ -85,6 +85,12 @@ pub struct Cli {
 
     #[arg(long, help = "Print the JSON Schema for benchmark.v0 stdout and exit")]
     pub schema: bool,
+
+    #[arg(
+        long = "input-schema",
+        help = "Print the JSON Schema for gold assertion JSONL records and exit"
+    )]
+    pub input_schema: bool,
 
     #[arg(
         long = "no-witness",

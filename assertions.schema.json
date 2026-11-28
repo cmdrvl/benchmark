@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cmdrvl/benchmark/blob/main/assertions.schema.json",
+  "title": "benchmark gold assertion JSONL record",
+  "description": "One JSON object per line in the assertion file consumed by benchmark.",
+  "type": "object",
+  "properties": {
+    "entity": {
+      "type": "string",
+      "description": "Row key value, or a JSON string array for a composite key."
+    },
+    "field": {
+      "type": "string",
+      "description": "Exact candidate column name to compare."
+    },
+    "expected": {
+      "type": "string",
+      "description": "Expected value in its source-text representation."
+    },
+    "compare_as": {
+      "type": "string",
+      "enum": ["string", "number", "percent", "date"],
+      "default": "string",
+      "description": "Comparison mode; string is the loader default."
+    },
+    "tolerance": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "description": "Optional non-negative absolute tolerance, legal for number and percent comparisons."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "major", "minor"],
+      "default": "major",
+      "description": "Assertion importance; major is the loader default."
+    },
+    "source": {
+      "type": ["string", "null"],
+      "description": "Optional provenance for the human-validated fact."
+    }
+  },
+  "required": ["entity", "field", "expected"],
+  "allOf": [
+    {
+      "if": {
+        "required": ["compare_as"],
+        "properties": {"compare_as": {"enum": ["string", "date"]}}
+      },
+      "then": {
+        "properties": {"tolerance": {"type": "null"}}
+      }
+    },
+    {
+      "if": {
+        "not": {"required": ["compare_as"]}
+      },
+      "then": {
+        "properties": {"tolerance": {"type": "null"}}
+      }
+    }
+  ],
+  "additionalProperties": true
+}

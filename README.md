@@ -98,6 +98,7 @@ benchmark capabilities --json         # identical document
 benchmark robot-docs guide            # bounded agent guide
 benchmark --robot-triage              # compact read-only triage JSON
 benchmark --schema                    # JSON Schema for benchmark.v0 stdout
+benchmark --input-schema              # JSON Schema for one gold assertion JSONL record
 benchmark doctor --json               # cmdrvl.doctor.v1 health (exit 1 if unhealthy)
 benchmark doctor triage --json        # same schema, adds next_actions
 benchmark witness query --json        # ledger records ([] when none; exit 0)
@@ -112,6 +113,17 @@ The manifest declares:
 - every refusal code the source can emit (`E_IO`, `E_BAD_ASSERTIONS`, `E_EMPTY_ASSERTIONS`, `E_KEY_NOT_FOUND`, `E_KEY_NOT_UNIQUE`, `E_KEY_NULL`, `E_FORMAT_DETECT`, `E_INPUT_NOT_LOCKED`, `E_INPUT_DRIFT`, `E_UNSUPPORTED_HASH_ALGORITHM`);
 - side effects: reads only the paths you pass, no network; each scoring run appends one record to the witness ledger (`$EPISTEMIC_WITNESS`, else `~/.cmdrvl/state/witness/witness.jsonl`) unless you pass `--no-witness`, and a ledger failure never changes the exit code;
 - determinism: the same candidate bytes + assertion bytes + key column/profile + worksheet selector always give a byte-identical report, and the assertion set is a frozen input (part of the cache key).
+
+`benchmark --input-schema` prints the machine-readable schema for one assertion JSONL record. The
+minimal valid line is:
+
+```jsonl
+{"entity":"comp_4","field":"u8:cap_rate","expected":"6.76%"}
+```
+
+`entity`, `field`, and `expected` are required. Optional fields are `compare_as` (`string`,
+`number`, `percent`, or `date`; default `string`), non-negative `tolerance` for number/percent
+comparisons, `severity` (`critical`, `major`, or `minor`; default `major`), and `source`.
 
 ---
 
@@ -379,6 +391,10 @@ Important non-goal:
 ## Assertion contract
 
 Target assertion format is JSONL, one assertion per line:
+
+Use `benchmark --input-schema` to obtain the JSON Schema for one record. The loader is authoritative
+for semantic checks such as tolerance being limited to number and percent comparisons; malformed or
+semantically invalid records refuse with `E_BAD_ASSERTIONS`.
 
 ```jsonl
 {"entity": "comp_4", "field": "u8:cap_rate", "expected": "6.76%", "compare_as": "percent", "tolerance": 0.01, "severity": "critical", "source": "reference_excel:D14"}

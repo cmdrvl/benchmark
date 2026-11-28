@@ -13,6 +13,7 @@
       "benchmark <CANDIDATE> --assertions <FILE> (--key <COLUMN>[,<COLUMN>...] | --profile <FILE>) [--sheet <NAME|INDEX>] [--lock <LOCKFILE>]... [--json | --render <summary|summary-tsv>] [--explicit]",
       "benchmark --describe",
       "benchmark --schema",
+      "benchmark --input-schema",
       "benchmark --robot-triage",
       "benchmark capabilities --json",
       "benchmark robot-docs guide",
@@ -44,6 +45,7 @@
     { "name": "render", "flag": "--render", "type": "enum", "values": ["summary", "summary-tsv"], "description": "Emit a one-line summary or a TSV header and row instead of the full report (conflicts with --json)" },
     { "name": "describe", "flag": "--describe", "type": "flag", "description": "Print this operator manifest (identical to `capabilities --json`) and exit 0" },
     { "name": "schema", "flag": "--schema", "type": "flag", "description": "Print the JSON Schema for benchmark.v0 stdout (score report or refusal envelope) and exit 0" },
+    { "name": "input_schema", "flag": "--input-schema", "type": "flag", "description": "Print the JSON Schema for one gold assertion JSONL record and exit 0" },
     { "name": "no_witness", "flag": "--no-witness", "type": "flag", "description": "Do not record this run in the ambient witness ledger" },
     { "name": "robot_triage", "flag": "--robot-triage", "type": "flag", "description": "Deprecated alias of `doctor triage --json`: emit compact read-only triage JSON" },
     { "name": "version", "flag": "--version", "type": "flag", "description": "Print the benchmark version and exit 0" }
@@ -119,10 +121,23 @@
     "streaming": false,
     "agent_surfaces": {
       "global_json": "benchmark --json",
+      "input_schema": "benchmark --input-schema",
       "robot_triage": "benchmark --robot-triage",
       "capabilities": "benchmark capabilities --json",
       "robot_docs": "benchmark robot-docs guide",
       "doctor_fix": "not_available"
+    },
+    "assertion_input": {
+      "format": "JSONL, one assertion object per line",
+      "schema": "benchmark --input-schema",
+      "minimal_example": "{\"entity\":\"comp_4\",\"field\":\"u8:cap_rate\",\"expected\":\"6.76%\"}",
+      "required_fields": ["entity", "field", "expected"],
+      "optional_fields": {
+        "compare_as": ["string", "number", "percent", "date"],
+        "tolerance": "non-negative number for number or percent comparisons",
+        "severity": ["critical", "major", "minor"],
+        "source": "provenance string"
+      }
     },
     "witness": {
       "ambient_recording": "implemented",

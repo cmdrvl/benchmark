@@ -35,6 +35,9 @@ pub mod witness;
 /// JSON Schema for `benchmark.v0` stdout (score report or refusal envelope).
 pub const SCHEMA_JSON: &str = include_str!("../benchmark.schema.json");
 
+/// JSON Schema for one gold assertion JSONL record.
+pub const INPUT_SCHEMA_JSON: &str = assertions::INPUT_SCHEMA_JSON;
+
 use assertions::AssertionError;
 use candidate::{CandidateError, LoadedCandidate};
 use clap::CommandFactory;
@@ -86,6 +89,20 @@ impl Execution {
 }
 
 pub fn execute(mut cli: Cli) -> Result<Execution, Box<dyn std::error::Error>> {
+    if cli.input_schema {
+        if cli.describe
+            || cli.schema
+            || has_scoring_args(&cli)
+            || cli.command.is_some()
+            || cli.robot_triage
+        {
+            return Err("`benchmark --input-schema` does not accept other arguments".into());
+        }
+        let mut schema = INPUT_SCHEMA_JSON.trim_end().to_owned();
+        schema.push('\n');
+        return Ok(Execution::new(Outcome::Pass, schema));
+    }
+
     if cli.describe {
         if has_scoring_args(&cli) || cli.command.is_some() || cli.robot_triage {
             return Err("`benchmark --describe` does not accept other arguments".into());
@@ -688,6 +705,7 @@ mod tests {
             robot_triage: false,
             describe: false,
             schema: false,
+            input_schema: false,
             no_witness: true,
             command: None,
         };
