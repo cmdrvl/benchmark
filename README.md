@@ -625,6 +625,8 @@ If the README and the plan ever disagree, follow:
 2. [AGENTS.md](./AGENTS.md)
 3. this README
 
+For the full toolchain guide, see the [Agent Operator Guide](https://github.com/cmdrvl/.github/blob/main/profile/AGENT_PROMPT.md). Run `benchmark --describe` for this tool's machine-readable contract.
+
 ---
 
 *`benchmark` is part of the open-source toolchain from the [CMD+RVL](https://cmdrvl.com) lineage and AI enablement practice. MIT-licensed. Contributions welcome from any practice or stack.*
