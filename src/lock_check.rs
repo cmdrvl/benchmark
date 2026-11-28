@@ -273,14 +273,17 @@ fn load_lockfile(path: &Path) -> Result<Lockfile, LockCheckError> {
             source,
         })?;
 
-    if lockfile.version != "lock.v0" {
-        return Err(LockCheckError::Parse {
-            path: path.to_path_buf(),
-            source: serde_json::Error::io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("unsupported lockfile version '{}'", lockfile.version),
-            )),
-        });
+    match lockfile.version.as_str() {
+        "lock.v0" => {}
+        _ => {
+            return Err(LockCheckError::Parse {
+                path: path.to_path_buf(),
+                source: serde_json::Error::io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unsupported lockfile version '{}'", lockfile.version),
+                )),
+            });
+        }
     }
 
     Ok(lockfile)
